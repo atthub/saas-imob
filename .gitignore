@@ -1,0 +1,13 @@
+# builds e zips
+*.zip
+app/node_modules
+app/.next
+app/out
+app/.env
+app/.env.local
+app/public/uploads
+app/boot-log.txt
+app/prisma-client*.zip
+app/criar-deploy-*.sh
+boot-log.txt
+node_modules

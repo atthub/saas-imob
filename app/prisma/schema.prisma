@@ -1,0 +1,721 @@
+// Schema do banco de dados — Plataforma Imobiliária SaaS
+// Banco: MySQL (gerenciado via phpMyAdmin no cPanel)
+
+generator client {
+  provider      = "prisma-client-js"
+  engineType    = "binary"
+  // Vários servidores de cPanel rodam em CloudLinux/RHEL com OpenSSL 1.0 ou 3.0.
+  // Gerar binários para essas plataformas evita o erro "Prisma Client could not
+  // locate the Query Engine" ao rodar `npm run build` direto no servidor.
+  // debian-openssl-1.1.x: servidor da Eliana Godoy (CloudLinux com OpenSSL 1.1)
+  binaryTargets = ["native", "rhel-openssl-1.0.x", "rhel-openssl-3.0.x", "debian-openssl-3.0.x", "debian-openssl-1.1.x"]
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// TENANT (cada imobiliária que usa o sistema)
+// ---------------------------------------------------------------------------
+model Imobiliaria {
+  id              String   @id @default(cuid())
+  nome            String
+  slug            String   @unique
+  creci           String?
+  descricao       String?  @db.Text
+  logoUrl         String?
+  logoAltura      Int      @default(48) // altura da logo na navbar do site público, em px
+  faviconUrl      String?
+
+  // Texto editável da Hero (banner principal) do site público — limitado em
+  // tamanho para não quebrar o layout no desktop/mobile (ver limites no
+  // formulário de Configurações e na rota /api/imobiliaria).
+  heroTitulo      String   @default("Encontre o imóvel ideal para você") @db.VarChar(70)
+  heroSubtitulo   String   @default("Compra, venda e locação com atendimento próximo e imóveis selecionados.") @db.VarChar(160)
+
+  // Contato
+  telefone        String?
+  whatsapp        String?
+  email           String?
+  endereco        String?
+  cidadePrincipal String?
+  estadoPrincipal String?
+
+  // Template / identidade visual
+  templateId      String?
+  template        Template? @relation(fields: [templateId], references: [id])
+  corPrimaria     String   @default("#0D0D0D")
+  corSecundaria   String   @default("#C5A059")
+  corDestaque     String   @default("#DD8500")
+  corFundo        String   @default("#F5F7FA")
+  fontHeading     String   @default("Oxygen")
+  fontBody        String   @default("Inter")
+
+  // Marca d'água aplicada nas fotos dos imóveis
+  marcaDaguaUrl      String?
+  marcaDaguaTamanho  Int      @default(18) // % da largura da foto
+  marcaDaguaPosicao  String   @default("bottom-right") // top-left | top-right | bottom-left | bottom-right | center
+
+  // Balão flutuante de WhatsApp na vitrine pública
+  whatsappBotaoAtivo     Boolean  @default(false)
+  whatsappBotaoNumero    String?
+  whatsappBotaoMensagem  String   @default("Olá! Como podemos ajudar?") @db.VarChar(160)
+  whatsappBotaoPosicao   String   @default("bottom-right") // bottom-right | bottom-left
+  whatsappBotaoIcone     String   @default("whatsapp") // whatsapp | message-circle | message-square | phone
+
+  // Paginação da vitrine pública
+  itensPorPagina  Int      @default(12)
+  tipoPaginacao   String   @default("paginada") // paginada | scroll-infinito
+
+  // Layout dos imóveis em destaque na homepage
+  modoDestaque    String   @default("grade") // grade | especial
+
+  // Feed XML — portais de imóveis (ex: ZAP, Viva Real, OLX)
+  xmlHabilitado   Boolean  @default(false)
+  xmlToken        String?  // token de autenticação para o feed (opcional)
+
+  // Funcionalidades premium (habilitadas seletivamente por imobiliária)
+  landingPagesHabilitado  Boolean  @default(false)
+  comissoesHabilitado     Boolean  @default(false)
+  mcmvHabilitado          Boolean  @default(false) // simulador Minha Casa Minha Vida
+  // blogMenuHabilitado e blogHomepageHabilitado são lidos via $queryRaw (colunas novas,
+  // não incluídas aqui para evitar erro "Unknown column" no servidor antes do ALTER TABLE)
+
+  ativo           Boolean  @default(true)
+  criadoEm        DateTime @default(now())
+  atualizadoEm    DateTime @updatedAt
+
+  usuarios        Usuario[]
+  corretores      Corretor[]
+  imoveis         Imovel[]
+  leads           Lead[]
+  redesSociais    RedeSocial[]
+  banners         Banner[]
+  buscas          BuscaRegistrada[]
+  captacoes          Captacao[]
+  proprietarios      Proprietario[]
+  landingPages       LandingPage[]
+  comissoes          Comissao[]
+  mensagensWhatsapp  MensagemWhatsapp[]
+  promocoes          Promocao[]
+  artigos            Artigo[]
+
+  @@map("imobiliarias")
+}
+
+// ---------------------------------------------------------------------------
+// USUÁRIOS DO PAINEL ADMINISTRATIVO
+// ---------------------------------------------------------------------------
+enum PapelUsuario {
+  SUPER_ADMIN // dono do SaaS, gerencia todas as imobiliárias
+  ADMIN       // administrador de uma imobiliária
+  CORRETOR    // corretor com acesso restrito a seus leads
+}
+
+model Usuario {
+  id            String       @id @default(cuid())
+  nome          String
+  email         String       @unique
+  senhaHash         String
+  papel             PapelUsuario @default(ADMIN)
+  permissoes        Json?
+
+  // Redefinição de senha — token de uso único, expira em 1h
+  resetToken        String?   @unique
+  resetTokenExpira  DateTime?
+
+  imobiliariaId String?
+  imobiliaria   Imobiliaria? @relation(fields: [imobiliariaId], references: [id])
+
+  corretor      Corretor?
+
+  criadoEm      DateTime     @default(now())
+  atualizadoEm  DateTime     @updatedAt
+
+  @@map("usuarios")
+}
+
+// ---------------------------------------------------------------------------
+// CORRETORES
+// ---------------------------------------------------------------------------
+model Corretor {
+  id            String      @id @default(cuid())
+  nome          String
+  email         String?
+  telefone      String
+  whatsapp      String?
+  creci         String?
+  fotoUrl       String?
+  ativo         Boolean     @default(true)
+
+  usuarioId     String?     @unique
+  usuario       Usuario?    @relation(fields: [usuarioId], references: [id])
+
+  imobiliariaId String
+  imobiliaria   Imobiliaria @relation(fields: [imobiliariaId], references: [id])
+
+  leads         Lead[]
+  comissoes     Comissao[]
+
+  criadoEm      DateTime    @default(now())
+  atualizadoEm  DateTime    @updatedAt
+
+  @@map("corretores")
+}
+
+// ---------------------------------------------------------------------------
+// LOCALIZAÇÃO (cidades e bairros do Brasil)
+// ---------------------------------------------------------------------------
+model Cidade {
+  id      String   @id @default(cuid())
+  nome    String
+  uf      String
+  bairros Bairro[]
+  imoveis Imovel[]
+
+  @@unique([nome, uf])
+  @@map("cidades")
+}
+
+model Bairro {
+  id       String  @id @default(cuid())
+  nome     String
+  cidadeId String
+  cidade   Cidade  @relation(fields: [cidadeId], references: [id])
+  imoveis  Imovel[]
+
+  @@unique([nome, cidadeId])
+  @@map("bairros")
+}
+
+// ---------------------------------------------------------------------------
+// IMÓVEIS
+// ---------------------------------------------------------------------------
+enum FinalidadeImovel {
+  VENDA
+  LOCACAO
+  VENDA_E_LOCACAO
+}
+
+enum TipoImovel {
+  CASA
+  APARTAMENTO
+  TERRENO
+  SALA_COMERCIAL
+  GALPAO
+  CHACARA
+  KITNET
+  ESPACO_FESTAS
+  OUTRO
+}
+
+enum StatusImovel {
+  DISPONIVEL
+  RESERVADO
+  VENDIDO
+  ALUGADO
+  INATIVO
+}
+
+model Imovel {
+  id              String           @id @default(cuid())
+  codigo          String           // automático ou manual, único por imobiliária
+  codigoAutomatico Boolean         @default(true)
+
+  // ID do post original no WordPress (plugin Classified Listing), quando este
+  // imóvel veio da importação em massa. Permite rodar a importação em lotes e
+  // retomar/repetir sem duplicar registros (ver /admin/importacao-wordpress).
+  origemWpId      Int?
+  titulo          String
+  descricao       String?          @db.Text
+  tipo            TipoImovel
+  finalidade      FinalidadeImovel
+  status          StatusImovel     @default(DISPONIVEL)
+
+  valorVenda      Decimal?         @db.Decimal(14, 2)
+  valorLocacao    Decimal?         @db.Decimal(14, 2)
+  valorCondominio Decimal?         @db.Decimal(14, 2)
+  valorIptu       Decimal?         @db.Decimal(14, 2)
+
+  areaTotal       Decimal?         @db.Decimal(10, 2)
+  areaConstruida  Decimal?         @db.Decimal(10, 2)
+  quartos         Int?
+  suites          Int?
+  banheiros       Int?
+  vagasGaragem    Int?
+
+  // Endereço / mapa (opcional exibir no site)
+  endereco        String?
+  numero          String?
+  complemento     String?
+  cep             String?
+  cidadeId        String?
+  cidade          Cidade?          @relation(fields: [cidadeId], references: [id])
+  bairroId        String?
+  bairro          Bairro?          @relation(fields: [bairroId], references: [id])
+  latitude        Float?
+  longitude       Float?
+  exibirMapa      Boolean          @default(true)
+
+  destaque        Boolean          @default(false)
+  visualizacoes   Int              @default(0)
+
+  // Dados do proprietário do imóvel — uso interno do painel administrativo,
+  // nunca exibidos na vitrine pública.
+  proprietarioNome    String?
+  proprietarioTelefone String?
+  proprietarioEmail   String?
+  proprietarioObs     String?          @db.Text
+
+  // Vínculo opcional com um cadastro de Proprietario (menu "Proprietários").
+  // Os campos proprietarioNome/Telefone/Email/Obs acima continuam existindo
+  // como cadastro livre (digitado direto no imóvel); quando o imóvel é
+  // aceito a partir de uma captação, ou vinculado manualmente, este campo
+  // aponta para o registro formal do proprietário.
+  proprietarioId      String?
+  proprietario        Proprietario?    @relation(fields: [proprietarioId], references: [id])
+
+  // Quando o imóvel nasce de uma captação pública (formulário "/captacao"),
+  // guarda a origem para exibir o aviso "Captação online" no painel.
+  captacaoOrigemId    String?          @unique
+  captacaoOrigem      Captacao?        @relation(fields: [captacaoOrigemId], references: [id])
+
+  // Dados do locatário, preenchidos quando o imóvel está alugado — uso
+  // interno do painel administrativo, nunca exibidos na vitrine pública.
+  locatarioNome      String?
+  locatarioTelefone  String?
+  locatarioEmail     String?
+  locatarioObs       String?          @db.Text
+  contratoInicio     DateTime?
+  contratoFim        DateTime?
+
+  imobiliariaId   String
+  imobiliaria     Imobiliaria      @relation(fields: [imobiliariaId], references: [id])
+
+  fotos           Foto[]
+  videos          Video[]
+  caracteristicas ImovelCaracteristica[]
+  condominioCaracteristicas ImovelCondominioCaracteristica[]
+  leads           Lead[]
+  landingPage     LandingPage?
+  comissoes       Comissao[]
+
+  criadoEm        DateTime         @default(now())
+  atualizadoEm    DateTime         @updatedAt
+
+  @@unique([imobiliariaId, codigo])
+  @@unique([imobiliariaId, origemWpId])
+  @@map("imoveis")
+}
+
+model Foto {
+  id        String   @id @default(cuid())
+  imovelId  String
+  imovel    Imovel   @relation(fields: [imovelId], references: [id], onDelete: Cascade)
+  url       String
+  urlOriginal String? // versão sem marca d'água, guardada internamente
+  ordem     Int      @default(0)
+  capa      Boolean  @default(false)
+  criadoEm  DateTime @default(now())
+
+  @@map("fotos")
+}
+
+model Video {
+  id        String   @id @default(cuid())
+  imovelId  String
+  imovel    Imovel   @relation(fields: [imovelId], references: [id], onDelete: Cascade)
+  url       String   // upload próprio ou link (YouTube/Vimeo)
+  tipo      String   @default("upload") // upload | youtube | vimeo
+  ordem     Int      @default(0)
+  criadoEm  DateTime @default(now())
+
+  @@map("videos")
+}
+
+// Catálogo de características (reaproveitável entre imóveis)
+model Caracteristica {
+  id      String   @id @default(cuid())
+  nome    String   @unique // Suíte, Closet, Piscina, Churrasqueira...
+  icone   String?
+  imoveis ImovelCaracteristica[]
+
+  @@map("caracteristicas")
+}
+
+model ImovelCaracteristica {
+  imovelId         String
+  imovel           Imovel         @relation(fields: [imovelId], references: [id], onDelete: Cascade)
+  caracteristicaId String
+  caracteristica   Caracteristica @relation(fields: [caracteristicaId], references: [id])
+
+  @@id([imovelId, caracteristicaId])
+  @@map("imovel_caracteristicas")
+}
+
+// Características do condomínio (quando o imóvel está em condomínio)
+model CaracteristicaCondominio {
+  id      String @id @default(cuid())
+  nome    String @unique // Portaria 24h, Salão de festas, Academia, Piscina, Playground...
+  icone   String?
+  imoveis ImovelCondominioCaracteristica[]
+
+  @@map("caracteristicas_condominio")
+}
+
+model ImovelCondominioCaracteristica {
+  imovelId               String
+  imovel                 Imovel                   @relation(fields: [imovelId], references: [id], onDelete: Cascade)
+  caracteristicaId       String
+  caracteristica         CaracteristicaCondominio @relation(fields: [caracteristicaId], references: [id])
+
+  @@id([imovelId, caracteristicaId])
+  @@map("imovel_condominio_caracteristicas")
+}
+
+// ---------------------------------------------------------------------------
+// LEADS (interessados)
+// ---------------------------------------------------------------------------
+enum StatusLead {
+  NOVO
+  DIRECIONADO
+  EM_ATENDIMENTO
+  CONVERTIDO
+  PERDIDO
+}
+
+model Lead {
+  id            String      @id @default(cuid())
+  nome          String
+  telefone      String
+  cidade        String?
+  mensagem      String?     @db.Text
+
+  imovelId      String?
+  imovel        Imovel?     @relation(fields: [imovelId], references: [id])
+
+  imobiliariaId String
+  imobiliaria   Imobiliaria @relation(fields: [imobiliariaId], references: [id])
+
+  corretorId    String?
+  corretor      Corretor?   @relation(fields: [corretorId], references: [id])
+
+  status        StatusLead  @default(NOVO)
+  origem        String      @default("site") // site | captacao | manual | promocao
+  observacoes   String?     @db.Text         // anotações internas do corretor/admin
+
+  promocaoId    String?
+  promocao      Promocao?   @relation(fields: [promocaoId], references: [id])
+
+  criadoEm      DateTime      @default(now())
+  direcionadoEm DateTime?
+  interacoes    InteracaoLead[]
+
+  @@map("leads")
+}
+
+// Histórico de interações com o lead (notas, ligações, visitas agendadas)
+model InteracaoLead {
+  id            String   @id @default(cuid())
+  leadId        String
+  lead          Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  imobiliariaId String
+  usuarioId     String?
+  usuarioNome   String?
+  // NOTA | LIGACAO | WHATSAPP | VISITA_AGENDADA | VISITA_REALIZADA
+  tipo          String   @default("NOTA")
+  descricao     String   @db.Text
+  dataAgendada  DateTime?
+  criadoEm      DateTime @default(now())
+
+  @@index([leadId])
+  @@index([imobiliariaId])
+  @@map("interacoes_lead")
+}
+
+// Captação de imóveis (proprietário oferecendo imóvel à imobiliária)
+model Captacao {
+  id              String      @id @default(cuid())
+  nomeProprietario String
+  telefone        String
+  email           String?
+  tipoImovel      String?
+  finalidade      String?     // venda | locacao | ambos
+  endereco        String?
+  cidade          String?
+  bairro          String?
+  valorPretendido String?
+  descricao       String?     @db.Text
+  fotos           CaptacaoFoto[]
+
+  imobiliariaId   String
+  imobiliaria     Imobiliaria @relation(fields: [imobiliariaId], references: [id])
+
+  status          String      @default("novo") // novo | em_analise | aprovado | recusado
+  criadoEm        DateTime    @default(now())
+
+  // Quando a captação é aceita, um imóvel rascunho é criado a partir dela.
+  imovelCriado    Imovel?
+
+  @@map("captacoes")
+}
+
+model CaptacaoFoto {
+  id         String   @id @default(cuid())
+  captacaoId String
+  captacao   Captacao @relation(fields: [captacaoId], references: [id], onDelete: Cascade)
+  url        String
+  criadoEm   DateTime @default(now())
+
+  @@map("captacao_fotos")
+}
+
+// ---------------------------------------------------------------------------
+// PROPRIETÁRIOS (cadastro formal, vinculado a um ou mais imóveis)
+// ---------------------------------------------------------------------------
+model Proprietario {
+  id            String      @id @default(cuid())
+  nome          String
+  telefone      String
+  email         String?
+  observacoes   String?     @db.Text
+
+  imobiliariaId String
+  imobiliaria   Imobiliaria @relation(fields: [imobiliariaId], references: [id])
+
+  imoveis       Imovel[]
+
+  criadoEm      DateTime    @default(now())
+  atualizadoEm  DateTime    @updatedAt
+
+  @@index([imobiliariaId, telefone])
+  @@map("proprietarios")
+}
+
+// ---------------------------------------------------------------------------
+// REDES SOCIAIS
+// ---------------------------------------------------------------------------
+model RedeSocial {
+  id            String      @id @default(cuid())
+  imobiliariaId String
+  imobiliaria   Imobiliaria @relation(fields: [imobiliariaId], references: [id])
+  plataforma    String      // facebook | instagram | tiktok | youtube | linkedin | whatsapp
+  url           String
+  ordem         Int         @default(0)
+
+  @@map("redes_sociais")
+}
+
+// ---------------------------------------------------------------------------
+// BANNERS ROTATIVOS
+// ---------------------------------------------------------------------------
+model Banner {
+  id             String      @id @default(cuid())
+  imobiliariaId  String
+  imobiliaria    Imobiliaria @relation(fields: [imobiliariaId], references: [id])
+  titulo         String?
+  urlDesktop     String
+  urlMobile      String?
+  link           String?
+  ordem          Int         @default(0)
+  ativo          Boolean     @default(true)
+  criadoEm       DateTime    @default(now())
+
+  @@map("banners")
+}
+
+// ---------------------------------------------------------------------------
+// TEMPLATES DA VITRINE (escolhidos pela imobiliária)
+// ---------------------------------------------------------------------------
+model Template {
+  id            String        @id @default(cuid())
+  nome          String        @unique
+  descricao     String?
+  thumbnailUrl  String?
+  identificador String        @unique // usado no código para renderizar o layout certo
+  imobiliarias  Imobiliaria[]
+
+  @@map("templates")
+}
+
+// ---------------------------------------------------------------------------
+// MÉTRICAS — imóveis mais buscados (para dashboard de marketing)
+// ---------------------------------------------------------------------------
+model BuscaRegistrada {
+  id            String      @id @default(cuid())
+  imobiliariaId String
+  imobiliaria   Imobiliaria @relation(fields: [imobiliariaId], references: [id])
+  termo         String?
+  cidade        String?
+  bairro        String?
+  precoMin      Decimal?    @db.Decimal(14, 2)
+  precoMax      Decimal?    @db.Decimal(14, 2)
+  criadoEm      DateTime    @default(now())
+
+  @@map("buscas_registradas")
+}
+
+// Configuração global da plataforma (SMTP etc.) — sempre uma única linha "default"
+model ConfiguracaoPlataforma {
+  id             String   @id @default("default")
+  smtpHost       String   @default("")
+  smtpPorta      Int?
+  smtpUsuario    String   @default("")
+  smtpSenha      String?
+  smtpRemetente  String   @default("")
+  smtpSeguro     Boolean  @default(true)
+  criadoEm       DateTime @default(now())
+  atualizadoEm   DateTime @updatedAt
+
+  @@map("configuracoes_plataforma")
+}
+
+// ---------------------------------------------------------------------------
+// LANDING PAGES (páginas exclusivas por imóvel)
+// ---------------------------------------------------------------------------
+model LandingPage {
+  id            String      @id @default(cuid())
+  slug          String      @unique  // URL pública: /lp/[slug]
+  titulo        String?
+  descricao     String?     @db.Text
+  cta           String?     // texto do botão de chamada para ação
+  status        String      @default("rascunho") // rascunho | publicada
+
+  imovelId      String      @unique
+  imovel        Imovel      @relation(fields: [imovelId], references: [id], onDelete: Cascade)
+
+  imobiliariaId String
+  imobiliaria   Imobiliaria @relation(fields: [imobiliariaId], references: [id])
+
+  criadoEm      DateTime    @default(now())
+  atualizadoEm  DateTime    @updatedAt
+
+  @@map("landing_pages")
+}
+
+// ---------------------------------------------------------------------------
+// AUDITORIA — registro de ações do painel
+// ---------------------------------------------------------------------------
+model RegistroAuditoria {
+  id            String   @id @default(cuid())
+  imobiliariaId String?
+  usuarioId     String?
+  usuarioNome   String?
+  acao          String   // ex: "LOGIN", "IMOVEL_SALVO", "LEAD_DIRECIONADO"
+  entidade      String?  // ex: "imovel", "lead", "corretor"
+  entidadeId    String?
+  detalhes      String?  @db.Text // JSON livre com contexto
+  ip            String?
+  criadoEm      DateTime @default(now())
+
+  @@index([imobiliariaId, criadoEm])
+  @@map("auditoria")
+}
+
+// ---------------------------------------------------------------------------
+// COMISSÕES (6% sobre o valor de venda + 30% desses 6% para terceiros)
+// ---------------------------------------------------------------------------
+model Comissao {
+  id                   String      @id @default(cuid())
+  imobiliariaId        String
+  imobiliaria          Imobiliaria @relation(fields: [imobiliariaId], references: [id])
+
+  imovelId             String?
+  imovel               Imovel?     @relation(fields: [imovelId], references: [id])
+
+  corretorId           String?
+  corretor             Corretor?   @relation(fields: [corretorId], references: [id])
+
+  descricao            String?     // ex: "Venda Apt. Centro - Cliente João"
+
+  tipo                 String      // VENDA | LOCACAO
+  valorImovel          Decimal     @db.Decimal(15, 2)
+
+  percentualComissao   Decimal     @default(6.00) @db.Decimal(5, 2)  // padrão 6%
+  valorComissao        Decimal     @db.Decimal(15, 2)                 // calculado
+
+  percentualTerceiros  Decimal     @default(30.00) @db.Decimal(5, 2) // 30% dos 6%
+  valorTerceiros       Decimal     @db.Decimal(15, 2)                 // calculado
+
+  status               String      @default("pendente") // pendente | pago
+  observacoes          String?     @db.Text
+  dataVenda            DateTime?
+
+  criadoEm             DateTime    @default(now())
+  atualizadoEm         DateTime    @updatedAt
+
+  @@index([imobiliariaId, criadoEm])
+  @@map("comissoes")
+}
+
+// ---------------------------------------------------------------------------
+// MENSAGENS PRÉ-DEFINIDAS PARA WHATSAPP
+// Configuradas pelos ADMINs de cada imobiliária.
+// Variáveis disponíveis: {nome}, {imovel}, {telefone}
+// ---------------------------------------------------------------------------
+model MensagemWhatsapp {
+  id            String      @id @default(cuid())
+  imobiliariaId String
+  imobiliaria   Imobiliaria @relation(fields: [imobiliariaId], references: [id])
+  titulo        String      // ex: "Interesse em imóvel"
+  mensagem      String      @db.Text
+  ativa         Boolean     @default(true)
+  criadoEm      DateTime    @default(now())
+  atualizadoEm  DateTime    @updatedAt
+
+  @@index([imobiliariaId])
+  @@map("mensagens_whatsapp")
+}
+
+// ---------------------------------------------------------------------------
+// PROMOÇÕES (campanhas e ofertas especiais)
+// ---------------------------------------------------------------------------
+model Promocao {
+  id               String      @id @default(cuid())
+  imobiliariaId    String
+  imobiliaria      Imobiliaria @relation(fields: [imobiliariaId], references: [id])
+  titulo           String
+  subtitulo        String?
+  descricao        String?     @db.Text
+  imagemUrl        String?                   // imagem desktop (sugerido: 1200×600px)
+  imagemUrlMobile  String?                   // imagem mobile  (sugerido: 800×400px)
+  tipoLink         String?                   // "imovel" | "externo" | null
+  codigoImovel     String?                   // código do imóvel, quando tipoLink="imovel"
+  link             String?                   // URL externa, quando tipoLink="externo"
+  captarLeads      Boolean     @default(false) // habilita formulário de captação de leads
+  ordem            Int         @default(0)
+  ativo            Boolean     @default(true)
+  dataInicio       DateTime?
+  dataFim          DateTime?
+  criadoEm         DateTime    @default(now())
+  atualizadoEm     DateTime    @updatedAt
+  leads            Lead[]
+
+  @@map("promocoes")
+}
+
+// ---------------------------------------------------------------------------
+// BLOG (artigos com SEO avançado)
+// ---------------------------------------------------------------------------
+model Artigo {
+  id              String      @id @default(cuid())
+  imobiliariaId   String
+  imobiliaria     Imobiliaria @relation(fields: [imobiliariaId], references: [id])
+  titulo          String
+  slug            String
+  resumo          String?     @db.Text
+  conteudo        String      @db.LongText
+  imagemCapaUrl   String?
+  categoria       String?
+  autor           String?
+  publicadoEm     DateTime    @default(now())
+  ativo           Boolean     @default(true)
+  metaDescricao   String?     @db.VarChar(160)
+  criadoEm        DateTime    @default(now())
+  atualizadoEm    DateTime    @updatedAt
+
+  @@unique([imobiliariaId, slug])
+  @@map("artigos")
+}

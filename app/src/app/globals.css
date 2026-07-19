@@ -1,0 +1,291 @@
+@import "leaflet/dist/leaflet.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Variáveis globais padrão (template: classico) ───────────────────────── */
+:root {
+  --brand-dark: #0d0d0d;
+  --brand-gold: #c5a059;
+  --brand-gold-vivid: #dd8500;
+  --brand-light: #f5f7fa;
+  --font-heading: "Oxygen", sans-serif;
+  --font-body: "Inter", sans-serif;
+  --navbar-bg: #ffffff;
+  --navbar-text: #0d0d0d;
+  --body-text: #1a1a1a;
+}
+
+body {
+  font-family: var(--font-body);
+  background-color: var(--brand-light);
+  color: var(--body-text);
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading);
+}
+
+/* ── TEMPLATE: classico (padrão) ─────────────────────────────────────────── */
+[data-template="classico"] {
+  --brand-dark: #0d0d0d;
+  --brand-gold: #c5a059;
+  --brand-gold-vivid: #dd8500;
+  --brand-light: #f5f7fa;
+  --navbar-bg: #ffffff;
+  --navbar-text: #0d0d0d;
+  --body-text: #1a1a1a;
+}
+
+/* ── TEMPLATE: colorido (comercial vibrante) ─────────────────────────────── */
+[data-template="colorido"] {
+  --brand-dark: #1565c0;
+  --brand-gold: #ff8f00;
+  --brand-gold-vivid: #f57c00;
+  --brand-light: #e8f4fd;
+  --navbar-bg: #1565c0;
+  --navbar-text: #ffffff;
+  --body-text: #1a1a2e;
+}
+[data-template="colorido"] header {
+  background-color: var(--navbar-bg) !important;
+  border-bottom-color: #0d47a1 !important;
+}
+[data-template="colorido"] header a,
+[data-template="colorido"] header nav a,
+[data-template="colorido"] header button {
+  color: #ffffff !important;
+}
+[data-template="colorido"] header a:hover,
+[data-template="colorido"] header nav a:hover {
+  color: #ffcc02 !important;
+}
+[data-template="colorido"] header .text-brand-dark {
+  color: #ffffff !important;
+}
+
+/* ── TEMPLATE: compacto ──────────────────────────────────────────────────── */
+[data-template="compacto"] {
+  --brand-dark: #263238;
+  --brand-gold: #26c6da;
+  --brand-gold-vivid: #00acc1;
+  --brand-light: #f0f4f8;
+  --navbar-bg: #263238;
+  --navbar-text: #ffffff;
+  --body-text: #212121;
+}
+[data-template="compacto"] header {
+  background-color: #263238 !important;
+  border-bottom-color: #37474f !important;
+}
+[data-template="compacto"] header a,
+[data-template="compacto"] header nav a,
+[data-template="compacto"] header button {
+  color: #e0e0e0 !important;
+}
+[data-template="compacto"] header a:hover,
+[data-template="compacto"] header nav a:hover {
+  color: #26c6da !important;
+}
+[data-template="compacto"] header .text-brand-dark {
+  color: #ffffff !important;
+}
+
+/* ── TEMPLATE: minimalista ────────────────────────────────────────────────── */
+[data-template="minimalista"] {
+  --brand-dark: #1c1c1e;
+  --brand-gold: #8e8e93;
+  --brand-gold-vivid: #636366;
+  --brand-light: #fafafa;
+  --navbar-bg: #ffffff;
+  --navbar-text: #1c1c1e;
+  --body-text: #1c1c1e;
+  --font-heading: "Georgia", serif;
+}
+[data-template="minimalista"] header {
+  border-bottom-color: #e5e5ea !important;
+  box-shadow: none !important;
+}
+
+/* ── TEMPLATE: premium (luxo escuro) ─────────────────────────────────────── */
+[data-template="premium"] {
+  --brand-dark: #0a0a0a;
+  --brand-gold: #d4af37;
+  --brand-gold-vivid: #b8960c;
+  --brand-light: #111111;
+  --navbar-bg: #0a0a0a;
+  --navbar-text: #e8d5a3;
+  --body-text: #e0e0e0;
+}
+[data-template="premium"] header {
+  background-color: #0a0a0a !important;
+  border-bottom-color: #2a2a2a !important;
+}
+[data-template="premium"] header a,
+[data-template="premium"] header nav a {
+  color: #e8d5a3 !important;
+}
+[data-template="premium"] header a:hover,
+[data-template="premium"] header nav a:hover {
+  color: #d4af37 !important;
+}
+[data-template="premium"] header button {
+  color: #e8d5a3 !important;
+}
+[data-template="premium"] header .text-brand-dark {
+  color: #e8d5a3 !important;
+}
+[data-template="premium"] body,
+[data-template="premium"] main {
+  background-color: #111111;
+}
+[data-template="premium"] .bg-white {
+  background-color: #1a1a1a !important;
+  color: #e0e0e0 !important;
+}
+
+/* ── TEMPLATE: moderno-azul (inspirado no ZAP Imóveis) ───────────────────── */
+[data-template="moderno-azul"] {
+  --brand-dark: #0d47a1;
+  --brand-gold: #ff6b00;
+  --brand-gold-vivid: #e65100;
+  --brand-light: #f5f7fa;
+  --navbar-bg: #0d47a1;
+  --navbar-text: #ffffff;
+  --body-text: #1a1a1a;
+}
+[data-template="moderno-azul"] header {
+  background-color: #0d47a1 !important;
+  border-bottom-color: #0a3880 !important;
+}
+[data-template="moderno-azul"] header a,
+[data-template="moderno-azul"] header nav a {
+  color: #ffffff !important;
+}
+[data-template="moderno-azul"] header a:hover,
+[data-template="moderno-azul"] header nav a:hover {
+  color: #ff6b00 !important;
+}
+[data-template="moderno-azul"] header button {
+  color: #ffffff !important;
+}
+[data-template="moderno-azul"] header .text-brand-dark {
+  color: #ffffff !important;
+}
+
+/* ── TEMPLATE: verde-natureza (inspirado na Lagoa Maior) ─────────────────── */
+[data-template="verde-natureza"] {
+  --brand-dark: #1b5e20;
+  --brand-gold: #66bb6a;
+  --brand-gold-vivid: #388e3c;
+  --brand-light: #f1f8e9;
+  --navbar-bg: #1b5e20;
+  --navbar-text: #ffffff;
+  --body-text: #1a2e1a;
+}
+[data-template="verde-natureza"] header {
+  background-color: #1b5e20 !important;
+  border-bottom-color: #154a18 !important;
+}
+[data-template="verde-natureza"] header a,
+[data-template="verde-natureza"] header nav a {
+  color: #e8f5e9 !important;
+}
+[data-template="verde-natureza"] header a:hover,
+[data-template="verde-natureza"] header nav a:hover {
+  color: #a5d6a7 !important;
+}
+[data-template="verde-natureza"] header button {
+  color: #e8f5e9 !important;
+}
+[data-template="verde-natureza"] header .text-brand-dark {
+  color: #e8f5e9 !important;
+}
+
+/* ── TEMPLATE: vermelho-comercial (inspirado na Lopes) ───────────────────── */
+[data-template="vermelho-comercial"] {
+  --brand-dark: #b71c1c;
+  --brand-gold: #ff8f00;
+  --brand-gold-vivid: #e65100;
+  --brand-light: #fff8f8;
+  --navbar-bg: #b71c1c;
+  --navbar-text: #ffffff;
+  --body-text: #1a1a1a;
+}
+[data-template="vermelho-comercial"] header {
+  background-color: #b71c1c !important;
+  border-bottom-color: #8b0000 !important;
+}
+[data-template="vermelho-comercial"] header a,
+[data-template="vermelho-comercial"] header nav a {
+  color: #ffffff !important;
+}
+[data-template="vermelho-comercial"] header a:hover,
+[data-template="vermelho-comercial"] header nav a:hover {
+  color: #ffcc02 !important;
+}
+[data-template="vermelho-comercial"] header button {
+  color: #ffffff !important;
+}
+[data-template="vermelho-comercial"] header .text-brand-dark {
+  color: #ffffff !important;
+}
+
+/* ── TEMPLATE: roxo-moderno ──────────────────────────────────────────────── */
+[data-template="roxo-moderno"] {
+  --brand-dark: #4a148c;
+  --brand-gold: #e040fb;
+  --brand-gold-vivid: #ab00d6;
+  --brand-light: #f3e5f5;
+  --navbar-bg: #4a148c;
+  --navbar-text: #ffffff;
+  --body-text: #1a0a2e;
+}
+[data-template="roxo-moderno"] header {
+  background-color: #4a148c !important;
+  border-bottom-color: #38006b !important;
+}
+[data-template="roxo-moderno"] header a,
+[data-template="roxo-moderno"] header nav a {
+  color: #f3e5f5 !important;
+}
+[data-template="roxo-moderno"] header a:hover,
+[data-template="roxo-moderno"] header nav a:hover {
+  color: #e040fb !important;
+}
+[data-template="roxo-moderno"] header button {
+  color: #f3e5f5 !important;
+}
+[data-template="roxo-moderno"] header .text-brand-dark {
+  color: #f3e5f5 !important;
+}
+
+/* ── TEMPLATE: cinza-corporativo ─────────────────────────────────────────── */
+[data-template="cinza-corporativo"] {
+  --brand-dark: #37474f;
+  --brand-gold: #26a69a;
+  --brand-gold-vivid: #00796b;
+  --brand-light: #eceff1;
+  --navbar-bg: #37474f;
+  --navbar-text: #ffffff;
+  --body-text: #212121;
+}
+[data-template="cinza-corporativo"] header {
+  background-color: #37474f !important;
+  border-bottom-color: #263238 !important;
+}
+[data-template="cinza-corporativo"] header a,
+[data-template="cinza-corporativo"] header nav a {
+  color: #eceff1 !important;
+}
+[data-template="cinza-corporativo"] header a:hover,
+[data-template="cinza-corporativo"] header nav a:hover {
+  color: #80cbc4 !important;
+}
+[data-template="cinza-corporativo"] header button {
+  color: #eceff1 !important;
+}
+[data-template="cinza-corporativo"] header .text-brand-dark {
+  color: #eceff1 !important;
+}
