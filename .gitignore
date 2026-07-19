@@ -11,3 +11,6 @@ app/prisma-client*.zip
 app/criar-deploy-*.sh
 boot-log.txt
 node_modules
+app/.next_stale_bak
+app/tsconfig.tsbuildinfo
+.DS_Store
