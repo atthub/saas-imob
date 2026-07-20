@@ -267,7 +267,7 @@ jobs:
       - name: Acionar deploy via endpoint Next.js
         run: |
           echo "=== Chamando $SITE_URL/api/internal/deploy ==="
-          RESPONSE=$(curl -sf --max-time 180 \
+          RESPONSE=$(curl -sfk --max-time 180 \
             --resolve "vitrine.deltaimoveispinda.com.br:443:128.201.75.100" \
             -X POST \
             -H "Authorization: Bearer $DEPLOY_SECRET" \
