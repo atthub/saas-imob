@@ -1,9 +1,7 @@
 name: Deploy para Homologação
 
 on:
-  push:
-    branches: [main]
-  workflow_dispatch: # permite disparar manualmente pelo GitHub UI
+  workflow_dispatch: # disparado manualmente pelo GitHub UI (deploy automático via push desativado — SSH bloqueado no CI)
 
 jobs:
   deploy:
