@@ -95,6 +95,21 @@ jobs:
         with:
           name: next-build
 
+      - name: Limpar uploads anteriores no servidor
+        run: |
+          echo "=== Removendo arquivos de deploy anteriores (ignora se não existir) ==="
+          curl -sk \
+            -u "$CPANEL_USER:$CPANEL_PASS" \
+            -d "files[0][path]=$REMOTE_PATH" \
+            -d "files[0][name]=next-build.zip" \
+            "https://$CPANEL_HOST/execute/Fileman/delete_files" || true
+          curl -sk \
+            -u "$CPANEL_USER:$CPANEL_PASS" \
+            -d "files[0][path]=$REMOTE_PATH" \
+            -d "files[0][name]=_extract.php" \
+            "https://$CPANEL_HOST/execute/Fileman/delete_files" || true
+          echo "Limpeza concluída"
+
       - name: Verificar zip
         run: |
           echo "=== Tamanho do zip: $(du -sh next-build.zip | cut -f1) ==="
