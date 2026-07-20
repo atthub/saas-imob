@@ -9,7 +9,7 @@ on:
         required: true
         type: choice
         options:
-          - jkr          # JKR Imóveis — cPanel sem SSH (API HTTP)
+          - jkr          # JKR Imóveis — cPanel sem SSH (FTP via lftp)
           # Adicione novos clientes aqui no futuro
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -40,11 +40,9 @@ jobs:
         working-directory: app
         env:
           NEXT_TELEMETRY_DISABLED: 1
-          # DB remoto indisponível no CI — mesma flag usada em deploy.yml
           DATABASE_URL: "mysql://fake:fake@localhost:3306/fake"
         run: npm run build
 
-      # Zip com .next/ na raiz — ao extrair no servidor já cai na pasta correta
       - name: Compactar .next
         working-directory: app
         run: zip -r ${{ github.workspace }}/next-build.zip .next
@@ -57,28 +55,31 @@ jobs:
           retention-days: 1
 
 # ─────────────────────────────────────────────────────────────────────────────
-# JOB 2 — Deploy JKR Imóveis via cPanel API (sem SSH)
+# JOB 2 — Deploy JKR Imóveis via FTP (lftp mirror)
+#
+# Abordagem: extrai o zip localmente no runner e faz mirror via FTP.
+# Não depende de nenhuma função específica do cPanel.
 #
 # Secrets necessários em github.com → Settings → Secrets → Actions:
-#   JKR_CPANEL_USER   → usuário cPanel (ex: jkrimoveis)
-#   JKR_CPANEL_PASS   → senha cPanel
+#   JKR_CPANEL_USER  → usuário FTP/cPanel (ex: jkrimoveis)
+#   JKR_CPANEL_PASS  → senha FTP/cPanel
 #
-# Valores fixos (não sensíveis, hardcoded abaixo):
-#   host:  jkrimoveispinda.com.br:2083
-#   path:  /home/jkrimoveis/public_html/vitrineimob
+# Caminho FTP: relativo ao home do usuário no cPanel
+#   → public_html/vitrineimob  (equivale a /home/jkrimoveis/public_html/vitrineimob)
 # ─────────────────────────────────────────────────────────────────────────────
   deploy-jkr:
     name: Deploy JKR Imóveis
     needs: build
     if: github.event.inputs.cliente == 'jkr'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     env:
-      CPANEL_HOST: jkrimoveispinda.com.br
-      CPANEL_USER: ${{ secrets.JKR_CPANEL_USER }}
-      CPANEL_PASS: ${{ secrets.JKR_CPANEL_PASS }}
-      DEPLOY_PATH: /home/jkrimoveis/public_html/vitrineimob
+      FTP_HOST: jkrimoveispinda.com.br
+      FTP_USER: ${{ secrets.JKR_CPANEL_USER }}
+      FTP_PASS: ${{ secrets.JKR_CPANEL_PASS }}
+      # Caminho relativo ao home FTP (= /home/jkrimoveis/ no servidor)
+      REMOTE_DIR: public_html/vitrineimob
 
     steps:
       - name: Baixar artefato de build
@@ -86,92 +87,53 @@ jobs:
         with:
           name: next-build
 
-      - name: Fazer upload do zip via cPanel API
+      - name: Instalar lftp
+        run: sudo apt-get install -y lftp
+
+      - name: Extrair zip localmente
         run: |
-          echo "=== Enviando next-build.zip para JKR ==="
+          mkdir -p extracted
+          unzip -o next-build.zip -d extracted/
+          echo "=== Arquivos .next extraídos: $(find extracted/.next -type f | wc -l) arquivos ==="
 
-          # URL-encoda o caminho de destino
-          DIR_ENC=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$DEPLOY_PATH'))")
+      - name: Criar restart.txt local (para tocar no servidor)
+        run: echo "Deploy em $(date -u)" > /tmp/restart.txt
 
-          RESP=$(curl -k -s -w "\nHTTP_STATUS:%{http_code}" \
-            -u "$CPANEL_USER:$CPANEL_PASS" \
-            -F "file-1=@next-build.zip" \
-            "https://$CPANEL_HOST:2083/execute/Fileman/upload_files?dir=$DIR_ENC")
-
-          STATUS=$(echo "$RESP" | grep "HTTP_STATUS:" | cut -d: -f2)
-          BODY=$(echo "$RESP" | grep -v "HTTP_STATUS:")
-
-          echo "Status HTTP: $STATUS"
-          echo "Resposta: $BODY"
-
-          if [ "$STATUS" != "200" ]; then
-            echo "ERRO: upload falhou (status $STATUS)"
-            exit 1
-          fi
-
-      - name: Extrair zip no servidor via cPanel API
+      - name: Enviar .next via FTP e reiniciar Passenger
         run: |
-          echo "=== Extraindo .next no servidor JKR ==="
+          echo "=== Iniciando mirror FTP para JKR ==="
 
-          RESP=$(curl -k -s -w "\nHTTP_STATUS:%{http_code}" \
-            -u "$CPANEL_USER:$CPANEL_PASS" \
-            -X POST \
-            --data-urlencode "dir=$DEPLOY_PATH" \
-            --data-urlencode "file=next-build.zip" \
-            "https://$CPANEL_HOST:2083/execute/Fileman/extract_an_archive")
+          # Escreve o script lftp em arquivo para evitar problemas de escape
+          cat > /tmp/lftp-deploy.txt << 'LFTP_SCRIPT'
+          set ftp:ssl-allow yes
+          set ftp:ssl-force no
+          set ssl:verify-certificate no
+          set net:timeout 30
+          set net:max-retries 3
+          set net:reconnect-interval-base 5
+          set mirror:parallel-transfer-count 8
+          LFTP_SCRIPT
 
-          STATUS=$(echo "$RESP" | grep "HTTP_STATUS:" | cut -d: -f2)
-          BODY=$(echo "$RESP" | grep -v "HTTP_STATUS:")
+          # Adiciona as linhas com variáveis expandidas pelo shell
+          cat >> /tmp/lftp-deploy.txt << LFTP_VARS
+          open -u $FTP_USER,$FTP_PASS ftp://$FTP_HOST
+          echo "--- Sincronizando pasta .next ---"
+          mirror --reverse --parallel=8 --verbose extracted/.next $REMOTE_DIR/.next
+          echo "--- Criando pasta tmp ---"
+          mkdir -p $REMOTE_DIR/tmp
+          echo "--- Tocando restart.txt ---"
+          put /tmp/restart.txt -o $REMOTE_DIR/tmp/restart.txt
+          echo "=== Deploy JKR concluído! ==="
+          bye
+          LFTP_VARS
 
-          echo "Status HTTP: $STATUS"
-          echo "Resposta: $BODY"
+          lftp -f /tmp/lftp-deploy.txt
 
-          if [ "$STATUS" != "200" ]; then
-            echo "ERRO: extração falhou (status $STATUS)"
-            exit 1
-          fi
-
-      - name: Criar pasta tmp (se não existir)
-        run: |
-          curl -k -s \
-            -u "$CPANEL_USER:$CPANEL_PASS" \
-            -X POST \
-            --data-urlencode "path=$DEPLOY_PATH/tmp" \
-            "https://$CPANEL_HOST:2083/execute/Fileman/create_directory" || true
-
-      - name: Reiniciar Phusion Passenger (restart.txt)
-        run: |
-          echo "=== Reiniciando app JKR ==="
-
-          RESP=$(curl -k -s -w "\nHTTP_STATUS:%{http_code}" \
-            -u "$CPANEL_USER:$CPANEL_PASS" \
-            -X POST \
-            --data-urlencode "dir=$DEPLOY_PATH/tmp" \
-            --data-urlencode "filename=restart.txt" \
-            --data-urlencode "content=Restart em $(date -u)" \
-            "https://$CPANEL_HOST:2083/execute/Fileman/save_file_content")
-
-          STATUS=$(echo "$RESP" | grep "HTTP_STATUS:" | cut -d: -f2)
-          echo "Status HTTP: $STATUS"
-
-          if [ "$STATUS" != "200" ]; then
-            echo "AVISO: não foi possível tocar restart.txt (status $STATUS)"
-            echo "Reinicie o app manualmente no cPanel se necessário."
-          else
-            echo "=== Deploy JKR concluído com sucesso! ==="
-          fi
-
-      - name: Limpar zip do servidor
-        run: |
-          curl -k -s \
-            -u "$CPANEL_USER:$CPANEL_PASS" \
-            -X POST \
-            --data-urlencode "dir=$DEPLOY_PATH" \
-            --data-urlencode "files[0]=next-build.zip" \
-            "https://$CPANEL_HOST:2083/execute/Fileman/trash_files" || true
+      - name: Verificar resultado
+        run: echo "Deploy JKR finalizado em $(date -u)"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Para adicionar novos clientes no futuro, copie o bloco "deploy-jkr" acima,
-# renomeie para "deploy-NOMECLIENTE", ajuste o `if:` e os valores de env.
-# Adicione o novo cliente na lista `options:` do input no topo do arquivo.
+# Para adicionar novos clientes, copie o bloco "deploy-jkr" acima,
+# renomeie para "deploy-NOMECLIENTE", ajuste if:, FTP_HOST e REMOTE_DIR.
+# Adicione o novo cliente na lista options: no topo do arquivo.
 # ─────────────────────────────────────────────────────────────────────────────
