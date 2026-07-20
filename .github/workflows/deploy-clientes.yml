@@ -55,13 +55,19 @@ jobs:
           retention-days: 1
 
 # ─────────────────────────────────────────────────────────────────────────────
-# JOB 2 — Deploy JKR Imóveis via SSH
+# JOB 2 — Deploy JKR Imóveis via cPanel UAPI (HTTPS porta 2083)
 #
-# Secrets necessários em github.com → Settings → Secrets → Actions:
-#   JKR_SSH_KEY  → chave privada SSH (~/.ssh/github_actions_deploy)
+# Abordagem pull-via-webhook:
+#   1. Limpa arquivos de deploy anteriores (evita conflito de re-upload)
+#   2. Sobe PHP extrator temporário via cPanel Fileman API
+#   3. Sobe o zip do build via cPanel Fileman API
+#   4. Chama o PHP via HTTPS — ele extrai o zip, reinicia Passenger e se deleta
 #
-# Servidor: 128.201.75.100, porta 1158, usuário jkrimoveis
-# Site:     ~/public_html/vitrineimob
+# Toda comunicação usa HTTPS (porta 443/2083) — nunca bloqueada por firewall.
+#
+# Secrets necessários (GitHub → Settings → Secrets → Actions):
+#   JKR_CPANEL_USER   → jkrimoveis
+#   JKR_CPANEL_TOKEN  → API token criado no cPanel (Security → API Tokens)
 # ─────────────────────────────────────────────────────────────────────────────
   deploy-jkr:
     name: Deploy JKR Imóveis
@@ -71,11 +77,11 @@ jobs:
     timeout-minutes: 20
 
     env:
-      SSH_HOST: 128.201.75.100
-      SSH_PORT: 1158
-      SSH_USER: jkrimoveis
-      SITE_DIR: ~/public_html/vitrineimob
-      SITE_URL: https://jkrimoveispinda.com.br
+      CPANEL_HOST: jkrimoveispinda.com.br:2083
+      CPANEL_USER: ${{ secrets.JKR_CPANEL_USER }}
+      CPANEL_TOKEN: ${{ secrets.JKR_CPANEL_TOKEN }}
+      REMOTE_PATH: /public_html/vitrineimob
+      SITE_URL: https://jkrimoveispinda.com.br/vitrineimob
 
     steps:
       - name: Baixar artefato de build
@@ -83,49 +89,102 @@ jobs:
         with:
           name: next-build
 
-      - name: Configurar chave SSH
+      - name: Limpar uploads anteriores no servidor
         run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.JKR_SSH_KEY }}" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -p $SSH_PORT $SSH_HOST >> ~/.ssh/known_hosts 2>/dev/null
-          echo "Chave SSH configurada"
+          echo "=== Removendo arquivos de deploy anteriores ==="
+          curl -sk \
+            -H "Authorization: cpanel $CPANEL_USER:$CPANEL_TOKEN" \
+            -d "files[0][path]=$REMOTE_PATH" \
+            -d "files[0][name]=next-build.zip" \
+            "https://$CPANEL_HOST/execute/Fileman/delete_files" || true
+          curl -sk \
+            -H "Authorization: cpanel $CPANEL_USER:$CPANEL_TOKEN" \
+            -d "files[0][path]=$REMOTE_PATH" \
+            -d "files[0][name]=_deploy.php" \
+            "https://$CPANEL_HOST/execute/Fileman/delete_files" || true
+          echo "Limpeza concluída"
 
       - name: Verificar zip
         run: |
           echo "=== Tamanho: $(du -sh next-build.zip | cut -f1) ==="
           echo "=== Arquivos: $(unzip -l next-build.zip | tail -1) ==="
 
-      - name: Enviar zip ao servidor
+      - name: Criar script PHP extrator
         run: |
-          echo "=== Enviando next-build.zip via SCP ==="
-          scp -P $SSH_PORT \
-              -o StrictHostKeyChecking=no \
-              -o ConnectTimeout=30 \
-              -i ~/.ssh/id_ed25519 \
-              next-build.zip $SSH_USER@$SSH_HOST:~/
-          echo "Zip enviado com sucesso"
+          cat > /tmp/_deploy.php << 'PHPEOF'
+<?php
+// Script temporário de deploy — auto-deleta após uso
+$dir   = __DIR__;
+$zip   = $dir . '/next-build.zip';
+$touch = $dir . '/tmp/restart.txt';
 
-      - name: Instalar no servidor
+if (!file_exists($zip)) {
+    http_response_code(404);
+    die("ZIP not found: $zip");
+}
+
+$z = new ZipArchive();
+if ($z->open($zip) !== TRUE) {
+    http_response_code(500);
+    die("Failed to open zip");
+}
+
+$z->extractTo($dir);
+$z->close();
+
+// Reinicia Passenger
+@mkdir(dirname($touch), 0755, true);
+file_put_contents($touch, date('c'));
+
+// Limpeza
+@unlink($zip);
+@unlink(__FILE__);
+
+echo "OK";
+PHPEOF
+
+      - name: Upload PHP extrator
         run: |
-          echo "=== Extraindo e reiniciando no servidor ==="
-          ssh -p $SSH_PORT \
-              -o StrictHostKeyChecking=no \
-              -o ConnectTimeout=30 \
-              -o ServerAliveInterval=30 \
-              -i ~/.ssh/id_ed25519 \
-              $SSH_USER@$SSH_HOST \
-              "cd $SITE_DIR && \
-               rm -rf .next_old && \
-               mv .next .next_old && \
-               cd ~ && \
-               unzip -o next-build.zip -d . && \
-               mv ~/app/.next $SITE_DIR/.next && \
-               rm -f ~/next-build.zip && \
-               cd $SITE_DIR && \
-               touch tmp/restart.txt && \
-               echo 'Deploy OK em: '\$(date)"
-          echo "=== Instalação concluída ==="
+          echo "=== Enviando _deploy.php ==="
+          RESPONSE=$(curl -sk \
+            -H "Authorization: cpanel $CPANEL_USER:$CPANEL_TOKEN" \
+            -F "dir=$REMOTE_PATH" \
+            -F "file-1=@/tmp/_deploy.php;filename=_deploy.php" \
+            "https://$CPANEL_HOST/execute/Fileman/upload_files")
+          echo "Resposta: $RESPONSE"
+          STATUS=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status',0))" 2>/dev/null || echo "0")
+          if [ "$STATUS" != "1" ]; then
+            echo "ERRO: upload do PHP falhou — resposta acima"
+            exit 1
+          fi
+
+      - name: Upload zip do build
+        run: |
+          echo "=== Enviando next-build.zip ($(du -sh next-build.zip | cut -f1)) ==="
+          RESPONSE=$(curl -sk \
+            -H "Authorization: cpanel $CPANEL_USER:$CPANEL_TOKEN" \
+            -F "dir=$REMOTE_PATH" \
+            -F "file-1=@next-build.zip;filename=next-build.zip" \
+            "https://$CPANEL_HOST/execute/Fileman/upload_files")
+          echo "Resposta: $RESPONSE"
+          STATUS=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status',0))" 2>/dev/null || echo "0")
+          if [ "$STATUS" != "1" ]; then
+            echo "ERRO: upload do zip falhou — resposta acima"
+            exit 1
+          fi
+
+      - name: Acionar extração via PHP
+        run: |
+          echo "=== Aguardando 5s para uploads propagarem ==="
+          sleep 5
+          echo "=== Chamando _deploy.php ==="
+          RESULT=$(curl -sf --max-time 180 "$SITE_URL/_deploy.php" 2>&1 || echo "CURL_ERROR: $?")
+          echo "Resultado: $RESULT"
+          if [ "$RESULT" != "OK" ]; then
+            echo "ERRO: extração falhou"
+            exit 1
+          fi
+          echo "=== Extração concluída ==="
 
       - name: Verificar site após deploy
         run: |
@@ -140,6 +199,6 @@ jobs:
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Para adicionar novos clientes, copie o bloco "deploy-jkr",
-# renomeie para "deploy-NOMECLIENTE", ajuste if:, SSH_USER, SITE_DIR e SITE_URL.
-# Adicione o secreto SSH_KEY correspondente e o cliente na lista options: acima.
+# renomeie para "deploy-NOMECLIENTE", ajuste if:, CPANEL_HOST, REMOTE_PATH,
+# SITE_URL e crie os secrets correspondentes no GitHub.
 # ─────────────────────────────────────────────────────────────────────────────
