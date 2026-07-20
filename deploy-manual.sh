@@ -16,6 +16,16 @@
 #   4. SSH: extrai zip, atualiza schema, roda prisma db push, reinicia Passenger
 #
 # Pré-requisito: chave SSH configurada (~/.ssh/config ou ssh-add)
+#
+# ⚠️  REGRA OBRIGATÓRIA PARA CLIENTES NOVOS:
+#   Todo cliente novo (ou que ainda roda código antigo) DEVE receber um deploy
+#   manual ANTES de usar o GitHub Actions. O GitHub Actions depende do endpoint
+#   /api/internal/deploy que só existe no código novo. Sem o deploy manual
+#   inicial, o GitHub Actions sempre falhará com CURL_ERROR: 22.
+#
+#   Ordem correta para cada cliente novo:
+#     1. ./deploy-manual.sh <cliente>   ← ativa o endpoint no servidor
+#     2. A partir daí: GitHub Actions → Run workflow → <cliente>
 # =============================================================================
 
 set -euo pipefail
@@ -39,12 +49,11 @@ case "$CLIENTE" in
     ;;
 
   delta)
-    # TODO: preencher com as credenciais reais da Delta Imóveis
-    SSH_USER="TODO_delta_user"
-    SSH_HOST="TODO_delta_host"
-    SSH_PORT="TODO_delta_port"
-    NODE_BIN="TODO_node_path"   # ver PassengerNodejs no .htaccess do cliente
-    APP_DIR="/home/TODO_delta_user/public_html/vitrineimob"
+    SSH_USER="deltaimoveis"
+    SSH_HOST="128.201.75.100"
+    SSH_PORT="1158"
+    NODE_BIN="/home/deltaimoveis/nodevenv/vitrine.deltaimoveispinda.com.br/22/bin/node"
+    APP_DIR="/home/deltaimoveis/vitrine.deltaimoveispinda.com.br"
     ;;
 
   eliana)
