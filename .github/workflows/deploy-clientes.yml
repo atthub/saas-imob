@@ -43,9 +43,9 @@ jobs:
           DATABASE_URL: "mysql://fake:fake@localhost:3306/fake"
         run: npm run build
 
-      - name: Compactar .next
+      - name: Compactar .next + prisma
         working-directory: app
-        run: zip -r ${{ github.workspace }}/next-build.zip .next
+        run: zip -r ${{ github.workspace }}/next-build.zip .next prisma/schema.prisma prisma/seed.js
 
       - name: Salvar artefato de build
         uses: actions/upload-artifact@v4
@@ -83,7 +83,7 @@ jobs:
       CPANEL_TOKEN:   ${{ secrets.JKR_CPANEL_TOKEN }}
       DEPLOY_SECRET:  ${{ secrets.JKR_DEPLOY_SECRET }}
       REMOTE_APP:     /public_html/vitrineimob
-      SITE_URL:       https://jkrimoveispinda.com.br/vitrineimob
+      SITE_URL:       https://jkrimoveispinda.com.br
       DEPLOY_ZIP:     deploy-${{ github.run_id }}.zip
 
     steps:
