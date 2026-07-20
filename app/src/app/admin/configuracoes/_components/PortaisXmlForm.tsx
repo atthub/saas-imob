@@ -5,9 +5,10 @@ import ModalSucesso from "../../_components/ModalSucesso";
 import { Copy, RefreshCw, CheckCircle } from "lucide-react";
 
 const PORTAIS = [
-  { id: "olx",      label: "OLX Imóveis",   path: "/api/feed/olx" },
-  { id: "vivareal", label: "Viva Real",      path: "/api/feed/vivareal" },
-  { id: "zap",      label: "ZAP Imóveis",    path: "/api/feed/zap" },
+  { id: "olx",      label: "OLX Imóveis",       path: "/api/feed/olx" },
+  { id: "vivareal", label: "Viva Real",          path: "/api/feed/vivareal" },
+  { id: "zap",      label: "ZAP Imóveis",        path: "/api/feed/zap" },
+  { id: "meta",     label: "Meta (Facebook Ads)", path: "/api/feed/meta" },
 ];
 
 export default function PortaisXmlForm() {

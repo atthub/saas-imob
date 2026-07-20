@@ -1,6 +1,6 @@
 /**
  * lib/xmlFeed.ts — autenticação e busca de dados compartilhados pelos feeds XML
- * (OLX, Viva Real, Zap Imóveis).
+ * (OLX, Viva Real, Zap Imóveis, Meta Home Listings).
  */
 import { prisma } from "@/lib/prisma";
 import { obterImobiliariaAtual } from "@/lib/tenant";
