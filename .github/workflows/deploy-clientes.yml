@@ -104,6 +104,7 @@ jobs:
           RESPONSE=$(curl -sk \
             -H "Authorization: cpanel $CPANEL_USER:$CPANEL_TOKEN" \
             -F "dir=$REMOTE_APP" \
+            -F "overwrite=1" \
             -F "file-1=@next-build.zip;filename=$DEPLOY_ZIP" \
             "https://$CPANEL_HOST/execute/Fileman/upload_files")
           echo "Resposta: $RESPONSE"
@@ -177,6 +178,7 @@ jobs:
           RESPONSE=$(curl -sk \
             -H "Authorization: cpanel $CPANEL_USER:$CPANEL_TOKEN" \
             -F "dir=$REMOTE_APP" \
+            -F "overwrite=1" \
             -F "file-1=@next-build.zip;filename=$DEPLOY_ZIP" \
             "https://$CPANEL_HOST/execute/Fileman/upload_files")
           echo "Resposta: $RESPONSE"
@@ -252,6 +254,7 @@ jobs:
           RESPONSE=$(curl -sk \
             -H "Authorization: cpanel $CPANEL_USER:$CPANEL_TOKEN" \
             -F "dir=$REMOTE_APP" \
+            -F "overwrite=1" \
             -F "file-1=@next-build.zip;filename=$DEPLOY_ZIP" \
             "https://$CPANEL_HOST/execute/Fileman/upload_files")
           echo "Resposta: $RESPONSE"
