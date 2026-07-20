@@ -112,9 +112,9 @@ echo "✔ Zip criado: $ZIP ($(du -sh "$ZIP" | cut -f1))"
 echo ""
 
 # ─── 3. Enviar via SCP ────────────────────────────────────────────────────────
-REMOTE_ZIP="~/deploy-${CLIENTE}-$(date +%Y%m%d%H%M%S).zip"
+REMOTE_FILENAME="deploy-${CLIENTE}-$(date +%Y%m%d%H%M%S).zip"
 echo "▶ [3/4] Enviando zip para o servidor ($SSH_USER@$SSH_HOST)..."
-scp -P "$SSH_PORT" "$ZIP" "${SSH_USER}@${SSH_HOST}:${REMOTE_ZIP}"
+scp -P "$SSH_PORT" "$ZIP" "${SSH_USER}@${SSH_HOST}:~/${REMOTE_FILENAME}"
 echo "✔ Upload concluído"
 echo ""
 
@@ -125,23 +125,23 @@ ssh -p "$SSH_PORT" "${SSH_USER}@${SSH_HOST}" <<ENDSSH
 set -e
 NODE="${NODE_BIN}"
 APP="${APP_DIR}"
-ZIP_REMOTE="${REMOTE_ZIP}"
+ZIP_REMOTE="\$HOME/${REMOTE_FILENAME}"
 
 echo "  → Extraindo zip..."
-TMPDIR=\$(mktemp -d)
-unzip -o "\$ZIP_REMOTE" -d "\$TMPDIR" -q
+DTMP=\$(mktemp -d)
+unzip -oq "\$ZIP_REMOTE" -d "\$DTMP"
 
 echo "  → Atualizando .next..."
 rm -rf "\$APP/.next_old" 2>/dev/null || true
 mv "\$APP/.next" "\$APP/.next_old" 2>/dev/null || true
-mv "\$TMPDIR/.next" "\$APP/.next"
+mv "\$DTMP/.next" "\$APP/.next"
 
 echo "  → Atualizando prisma/schema.prisma e seed.js..."
-cp "\$TMPDIR/prisma/schema.prisma" "\$APP/prisma/schema.prisma"
-cp "\$TMPDIR/prisma/seed.js"       "\$APP/prisma/seed.js"
+cp "\$DTMP/prisma/schema.prisma" "\$APP/prisma/schema.prisma"
+cp "\$DTMP/prisma/seed.js"       "\$APP/prisma/seed.js"
 
 echo "  → Limpando temporários..."
-rm -rf "\$TMPDIR" "\$ZIP_REMOTE"
+rm -rf "\$DTMP" "\$ZIP_REMOTE"
 
 echo "  → Regenerando Prisma Client..."
 cd "\$APP"
