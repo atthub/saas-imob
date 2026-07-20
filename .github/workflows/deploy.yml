@@ -3,6 +3,7 @@ name: Deploy para Homologação
 on:
   push:
     branches: [main]
+  workflow_dispatch: # permite disparar manualmente pelo GitHub UI
 
 jobs:
   deploy:
