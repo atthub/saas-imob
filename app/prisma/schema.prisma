@@ -557,6 +557,25 @@ model BuscaRegistrada {
   @@map("buscas_registradas")
 }
 
+// ---------------------------------------------------------------------------
+// CONFIGURAÇÕES POR IMOBILIÁRIA — tabela chave-valor extensível
+// Substitui colunas booleanas ad-hoc na tabela imobiliarias.
+// Chaves atuais: blogMenuHabilitado, blogHomepageHabilitado
+// (mcmvHabilitado permanece na imobiliarias por compatibilidade)
+// ---------------------------------------------------------------------------
+model ConfiguracaoImobiliaria {
+  id            String   @id @default(cuid())
+  imobiliariaId String
+  chave         String   @db.VarChar(100)
+  valor         String?  @db.Text
+  criadoEm      DateTime @default(now())
+  atualizadoEm  DateTime @updatedAt
+
+  @@unique([imobiliariaId, chave])
+  @@index([imobiliariaId])
+  @@map("configuracoes_imobiliaria")
+}
+
 // Configuração global da plataforma (SMTP etc.) — sempre uma única linha "default"
 model ConfiguracaoPlataforma {
   id             String   @id @default("default")

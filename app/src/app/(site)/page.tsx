@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { getConfig } from "@/lib/config";
 import { obterImobiliariaAtual } from "@/lib/tenant";
 import { imovelParaResumo } from "@/lib/imoveisPublicos";
 import HeroSlider from "./_components/HeroSlider";
@@ -48,15 +49,8 @@ export default async function HomePage() {
     );
   }
 
-  // Lê blogHomepageHabilitado via $queryRawUnsafe (parâmetros explícitos — forma confiável neste servidor)
-  let blogHomepageHabilitado = false;
-  try {
-    const rows = await prisma.$queryRawUnsafe<[{ blogHomepageHabilitado: number }]>(
-      "SELECT blogHomepageHabilitado FROM imobiliarias WHERE id = ?",
-      imobiliaria.id
-    );
-    blogHomepageHabilitado = !!(rows[0]?.blogHomepageHabilitado);
-  } catch { /* coluna ainda não existe */ }
+  // blogHomepageHabilitado: tabela chave-valor configuracoes_imobiliaria
+  const blogHomepageHabilitado = await getConfig(imobiliaria.id, "blogHomepageHabilitado", false);
 
   const agora = new Date();
   const [banners, promocoesAtivas, imoveisDestaque, artigosRecentes] = await Promise.all([

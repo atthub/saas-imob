@@ -1,5 +1,6 @@
 import { obterImobiliariaAtual } from "@/lib/tenant";
 import { prisma } from "@/lib/prisma";
+import { getConfig } from "@/lib/config";
 import Topbar from "./_components/Topbar";
 import Navbar from "./_components/Navbar";
 import Footer from "./_components/Footer";
@@ -29,18 +30,19 @@ export default async function SiteLayout({ children }: { children: React.ReactNo
       })) > 0
     : false;
 
-  // Campos novos: lidos via $queryRawUnsafe (parâmetros explícitos — forma confiável neste servidor)
+  // mcmvHabilitado: coluna real em imobiliarias (garantida pelo startup)
+  // blogMenuHabilitado: tabela chave-valor configuracoes_imobiliaria
   let mcmvHabilitado = false;
   let blogMenuHabilitado = true;
   if (imobiliaria) {
     try {
-      const rows = await prisma.$queryRawUnsafe<[{ mcmvHabilitado: number; blogMenuHabilitado: number }]>(
-        "SELECT mcmvHabilitado, blogMenuHabilitado FROM imobiliarias WHERE id = ?",
+      const rows = await prisma.$queryRawUnsafe<[{ mcmvHabilitado: number }]>(
+        "SELECT mcmvHabilitado FROM imobiliarias WHERE id = ?",
         imobiliaria.id
       );
-      mcmvHabilitado     = !!(rows[0]?.mcmvHabilitado);
-      blogMenuHabilitado = rows[0]?.blogMenuHabilitado !== undefined ? !!(rows[0]?.blogMenuHabilitado) : true;
-    } catch { /* colunas ainda não existem */ }
+      mcmvHabilitado = !!(rows[0]?.mcmvHabilitado);
+    } catch { /* coluna ainda não existe */ }
+    blogMenuHabilitado = await getConfig(imobiliaria.id, "blogMenuHabilitado", true);
   }
 
   return (

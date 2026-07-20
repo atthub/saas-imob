@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getConfigs, setConfig } from "@/lib/config";
 import { obterSessaoAtual } from "@/lib/session";
 
 // MySQL via $queryRaw pode retornar TINYINT(1) como boolean (campo Prisma) ou number (ALTER TABLE).
@@ -70,12 +71,9 @@ export async function GET() {
     return NextResponse.json({ erro: "Imobiliária não encontrada." }, { status: 404 });
   }
 
-  // Todos os toggles lidos via $queryRawUnsafe (parâmetros explícitos).
-  // IMPORTANTE: $queryRaw tagged template falha silenciosamente neste servidor
-  // (Phusion Passenger/CloudLinux) — usar sempre $queryRawUnsafe("SQL", param).
+  // mcmvHabilitado: coluna real em imobiliarias (garantida pelo startup em lib/prisma.ts)
+  // blogMenuHabilitado / blogHomepageHabilitado: tabela chave-valor configuracoes_imobiliaria
   let mcmvHabilitado = false;
-  let blogMenuHabilitado = true;
-  let blogHomepageHabilitado = false;
   try {
     const rows = await prisma.$queryRawUnsafe<[{ mcmvHabilitado: unknown }]>(
       "SELECT mcmvHabilitado FROM imobiliarias WHERE id = ?",
@@ -83,20 +81,14 @@ export async function GET() {
     );
     mcmvHabilitado = toBool(rows[0]?.mcmvHabilitado, false);
   } catch { /* coluna não existe */ }
-  try {
-    const rows = await prisma.$queryRawUnsafe<[{ blogMenuHabilitado: unknown }]>(
-      "SELECT blogMenuHabilitado FROM imobiliarias WHERE id = ?",
-      sessao.imobiliariaId
-    );
-    blogMenuHabilitado = toBool(rows[0]?.blogMenuHabilitado, true);
-  } catch { /* coluna não existe, default = true */ }
-  try {
-    const rows = await prisma.$queryRawUnsafe<[{ blogHomepageHabilitado: unknown }]>(
-      "SELECT blogHomepageHabilitado FROM imobiliarias WHERE id = ?",
-      sessao.imobiliariaId
-    );
-    blogHomepageHabilitado = toBool(rows[0]?.blogHomepageHabilitado, false);
-  } catch { /* coluna não existe */ }
+
+  const cfgs = await getConfigs(sessao.imobiliariaId, ["blogMenuHabilitado", "blogHomepageHabilitado"]);
+  const blogMenuHabilitado     = cfgs["blogMenuHabilitado"]     !== null && cfgs["blogMenuHabilitado"]     !== undefined
+    ? cfgs["blogMenuHabilitado"] === "true" || cfgs["blogMenuHabilitado"] === "1"
+    : true;  // default: menu blog visível
+  const blogHomepageHabilitado = cfgs["blogHomepageHabilitado"] !== null && cfgs["blogHomepageHabilitado"] !== undefined
+    ? cfgs["blogHomepageHabilitado"] === "true" || cfgs["blogHomepageHabilitado"] === "1"
+    : false; // default: bloco blog oculto na homepage
 
   return NextResponse.json({ imobiliaria: { ...imobiliaria, mcmvHabilitado, blogMenuHabilitado, blogHomepageHabilitado } });
 }
@@ -246,41 +238,27 @@ export async function PUT(request: NextRequest) {
     select: SELECAO_PADRAO
   });
 
-  // Toggles salvos via $executeRawUnsafe individual (bypassa DMMF, mais confiável
-  // que tagged template $executeRaw em produção com Phusion Passenger).
+  // mcmvHabilitado: coluna real em imobiliarias (via $executeRawUnsafe)
+  // blogMenuHabilitado / blogHomepageHabilitado: tabela chave-valor (via setConfig)
   let mcmvHabilitado = false;
-  let blogMenuHabilitado = true;
-  let blogHomepageHabilitado = false;
 
   if (typeof body.mcmvHabilitado === "boolean") {
-    const v = body.mcmvHabilitado ? 1 : 0;
     try {
       await prisma.$executeRawUnsafe(
         "UPDATE imobiliarias SET mcmvHabilitado = ? WHERE id = ?",
-        v, sessao.imobiliariaId
+        body.mcmvHabilitado ? 1 : 0,
+        sessao.imobiliariaId
       );
     } catch { /* coluna não existe */ }
   }
   if (typeof body.blogMenuHabilitado === "boolean") {
-    const v = body.blogMenuHabilitado ? 1 : 0;
-    try {
-      await prisma.$executeRawUnsafe(
-        "UPDATE imobiliarias SET blogMenuHabilitado = ? WHERE id = ?",
-        v, sessao.imobiliariaId
-      );
-    } catch { /* coluna não existe */ }
+    await setConfig(sessao.imobiliariaId, "blogMenuHabilitado", body.blogMenuHabilitado);
   }
   if (typeof body.blogHomepageHabilitado === "boolean") {
-    const v = body.blogHomepageHabilitado ? 1 : 0;
-    try {
-      await prisma.$executeRawUnsafe(
-        "UPDATE imobiliarias SET blogHomepageHabilitado = ? WHERE id = ?",
-        v, sessao.imobiliariaId
-      );
-    } catch { /* coluna não existe */ }
+    await setConfig(sessao.imobiliariaId, "blogHomepageHabilitado", body.blogHomepageHabilitado);
   }
 
-  // Lê estado real do banco via $queryRawUnsafe (parâmetros explícitos — forma confiável neste servidor)
+  // Lê estado real do banco após salvar
   try {
     const rows = await prisma.$queryRawUnsafe<[{ mcmvHabilitado: unknown }]>(
       "SELECT mcmvHabilitado FROM imobiliarias WHERE id = ?",
@@ -288,20 +266,14 @@ export async function PUT(request: NextRequest) {
     );
     mcmvHabilitado = toBool(rows[0]?.mcmvHabilitado, false);
   } catch { /* coluna não existe */ }
-  try {
-    const rows = await prisma.$queryRawUnsafe<[{ blogMenuHabilitado: unknown }]>(
-      "SELECT blogMenuHabilitado FROM imobiliarias WHERE id = ?",
-      sessao.imobiliariaId
-    );
-    blogMenuHabilitado = toBool(rows[0]?.blogMenuHabilitado, true);
-  } catch { /* coluna não existe, default = true */ }
-  try {
-    const rows = await prisma.$queryRawUnsafe<[{ blogHomepageHabilitado: unknown }]>(
-      "SELECT blogHomepageHabilitado FROM imobiliarias WHERE id = ?",
-      sessao.imobiliariaId
-    );
-    blogHomepageHabilitado = toBool(rows[0]?.blogHomepageHabilitado, false);
-  } catch { /* coluna não existe */ }
+
+  const cfgs = await getConfigs(sessao.imobiliariaId, ["blogMenuHabilitado", "blogHomepageHabilitado"]);
+  const blogMenuHabilitado     = cfgs["blogMenuHabilitado"]     !== null && cfgs["blogMenuHabilitado"]     !== undefined
+    ? cfgs["blogMenuHabilitado"] === "true" || cfgs["blogMenuHabilitado"] === "1"
+    : true;
+  const blogHomepageHabilitado = cfgs["blogHomepageHabilitado"] !== null && cfgs["blogHomepageHabilitado"] !== undefined
+    ? cfgs["blogHomepageHabilitado"] === "true" || cfgs["blogHomepageHabilitado"] === "1"
+    : false;
 
   return NextResponse.json({ imobiliaria: { ...imobiliaria, mcmvHabilitado, blogMenuHabilitado, blogHomepageHabilitado } });
 }

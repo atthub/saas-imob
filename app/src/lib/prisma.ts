@@ -13,19 +13,34 @@ export const prisma =
     log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"]
   });
 
-// Garante colunas de toggle na primeira inicialização do processo.
-// Usa ADD COLUMN IF NOT EXISTS — seguro rodar múltiplas vezes.
+// Garante schema na primeira inicialização do processo.
 // Funciona com Phusion Passenger, next start ou qualquer runtime Node.js.
 if (!globalForPrisma.schemaInited) {
   globalForPrisma.schemaInited = true;
   globalForPrisma.prisma = prisma;
 
+  // 1) Garante colunas legadas em imobiliarias (mcmvHabilitado)
   prisma.$executeRawUnsafe(`
     ALTER TABLE imobiliarias
-      ADD COLUMN IF NOT EXISTS mcmvHabilitado         TINYINT(1) NOT NULL DEFAULT 0,
-      ADD COLUMN IF NOT EXISTS blogMenuHabilitado      TINYINT(1) NOT NULL DEFAULT 1,
-      ADD COLUMN IF NOT EXISTS blogHomepageHabilitado  TINYINT(1) NOT NULL DEFAULT 1
+      ADD COLUMN IF NOT EXISTS mcmvHabilitado TINYINT(1) NOT NULL DEFAULT 0
   `).catch((e: unknown) => {
-    console.error("[prisma] Aviso ao garantir colunas de toggle:", e);
+    console.error("[prisma] Aviso ao garantir colunas legadas:", e);
+  });
+
+  // 2) Cria tabela chave-valor configuracoes_imobiliaria se não existir
+  prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS configuracoes_imobiliaria (
+      id            VARCHAR(30)  NOT NULL,
+      imobiliariaId VARCHAR(30)  NOT NULL,
+      chave         VARCHAR(100) NOT NULL,
+      valor         TEXT,
+      criadoEm      DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+      atualizadoEm  DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+      PRIMARY KEY (id),
+      UNIQUE KEY uq_imob_chave (imobiliariaId, chave),
+      KEY idx_imobiliaria (imobiliariaId)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `).catch((e: unknown) => {
+    console.error("[prisma] Aviso ao criar configuracoes_imobiliaria:", e);
   });
 }
