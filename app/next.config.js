@@ -1,5 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Habilita instrumentation.ts — executado a cada restart para garantir schema do banco
+  experimental: {
+    instrumentationHook: true,
+  },
   // Compressão gzip nas respostas (reduz payload e tráfego)
   compress: true,
 
