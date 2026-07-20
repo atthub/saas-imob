@@ -43,19 +43,18 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -p ${{ secrets.SSH_PORT }} ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
 
-      - name: Enviar build para o servidor
+      - name: Enviar e instalar no servidor
         run: |
-          scp -P ${{ secrets.SSH_PORT }} \
-              -o StrictHostKeyChecking=no \
-              next-build.zip \
-              ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:~/
-
-      - name: Instalar no servidor
-        run: |
+          # Envia o zip via stdin e instala tudo em uma única sessão SSH
+          # (evita bloqueio por duas conexões consecutivas no cPanel/CloudLinux)
           ssh -p ${{ secrets.SSH_PORT }} \
               -o StrictHostKeyChecking=no \
+              -o ServerAliveInterval=30 \
+              -o ServerAliveCountMax=10 \
+              -o ConnectTimeout=60 \
               ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
-              "cd ~/homologacao.attitudehub.com.br && \
+              "cat > ~/next-build.zip && \
+               cd ~/homologacao.attitudehub.com.br && \
                rm -rf .next_old && \
                mv .next .next_old && \
                cd ~ && \
@@ -64,4 +63,4 @@ jobs:
                rm -f ~/next-build.zip && \
                cd ~/homologacao.attitudehub.com.br && \
                touch tmp/restart.txt && \
-               echo 'Deploy concluído em: '\$(date)"
+               echo 'Deploy concluído em: '\$(date)" < next-build.zip
