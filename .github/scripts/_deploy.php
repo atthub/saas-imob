@@ -37,6 +37,11 @@ foreach (glob($dir . '/deploy-*.zip') as $old) {
     @unlink($old);
 }
 
+// Limpa PHPs de deploy antigos (_deploy-*.php), exceto este
+foreach (glob($dir . '/_deploy-*.php') as $old) {
+    if (realpath($old) !== realpath(__FILE__)) @unlink($old);
+}
+
 // Auto-deleta
 @unlink(__FILE__);
 
