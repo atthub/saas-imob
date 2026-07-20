@@ -82,6 +82,7 @@ jobs:
       CPANEL_TOKEN: ${{ secrets.JKR_CPANEL_TOKEN }}
       REMOTE_PATH: /public_html/vitrineimob
       SITE_URL: https://jkrimoveispinda.com.br/vitrineimob
+      DEPLOY_ZIP: deploy-${{ github.run_id }}.zip
 
     steps:
       - name: Checkout (para acessar scripts)
@@ -91,21 +92,6 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: next-build
-
-      - name: Limpar uploads anteriores no servidor
-        run: |
-          echo "=== Removendo arquivos de deploy anteriores ==="
-          curl -sk \
-            -H "Authorization: cpanel $CPANEL_USER:$CPANEL_TOKEN" \
-            -d "files[0][path]=$REMOTE_PATH" \
-            -d "files[0][name]=next-build.zip" \
-            "https://$CPANEL_HOST/execute/Fileman/delete_files" || true
-          curl -sk \
-            -H "Authorization: cpanel $CPANEL_USER:$CPANEL_TOKEN" \
-            -d "files[0][path]=$REMOTE_PATH" \
-            -d "files[0][name]=_deploy.php" \
-            "https://$CPANEL_HOST/execute/Fileman/delete_files" || true
-          echo "Limpeza concluída"
 
       - name: Verificar zip
         run: |
@@ -129,11 +115,11 @@ jobs:
 
       - name: Upload zip do build
         run: |
-          echo "=== Enviando next-build.zip ($(du -sh next-build.zip | cut -f1)) ==="
+          echo "=== Enviando $DEPLOY_ZIP ($(du -sh next-build.zip | cut -f1)) ==="
           RESPONSE=$(curl -sk \
             -H "Authorization: cpanel $CPANEL_USER:$CPANEL_TOKEN" \
             -F "dir=$REMOTE_PATH" \
-            -F "file-1=@next-build.zip;filename=next-build.zip" \
+            -F "file-1=@next-build.zip;filename=$DEPLOY_ZIP" \
             "https://$CPANEL_HOST/execute/Fileman/upload_files")
           echo "Resposta: $RESPONSE"
           STATUS=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status',0))" 2>/dev/null || echo "0")
@@ -147,7 +133,7 @@ jobs:
           echo "=== Aguardando 5s para uploads propagarem ==="
           sleep 5
           echo "=== Chamando _deploy.php ==="
-          RESULT=$(curl -sf --max-time 180 "$SITE_URL/_deploy.php" 2>&1 || echo "CURL_ERROR: $?")
+          RESULT=$(curl -sf --max-time 180 "$SITE_URL/_deploy.php?zip=$DEPLOY_ZIP" 2>&1 || echo "CURL_ERROR: $?")
           echo "Resultado: $RESULT"
           if [ "$RESULT" != "OK" ]; then
             echo "ERRO: extração falhou"
