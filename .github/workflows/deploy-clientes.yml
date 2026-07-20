@@ -1,0 +1,177 @@
+name: Deploy → Clientes
+
+# Disparado manualmente no GitHub → Actions → "Deploy → Clientes" → Run workflow
+on:
+  workflow_dispatch:
+    inputs:
+      cliente:
+        description: 'Qual cliente atualizar?'
+        required: true
+        type: choice
+        options:
+          - jkr          # JKR Imóveis — cPanel sem SSH (API HTTP)
+          # Adicione novos clientes aqui no futuro
+
+# ─────────────────────────────────────────────────────────────────────────────
+# JOB 1 — Build (compartilhado por todos os clientes)
+# ─────────────────────────────────────────────────────────────────────────────
+jobs:
+  build:
+    name: Build Next.js
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 18
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: app/package-lock.json
+
+      - name: Instalar dependências
+        working-directory: app
+        run: npm ci
+
+      - name: Build Next.js
+        working-directory: app
+        env:
+          NEXT_TELEMETRY_DISABLED: 1
+          # DB remoto indisponível no CI — mesma flag usada em deploy.yml
+          DATABASE_URL: "mysql://fake:fake@localhost:3306/fake"
+        run: npm run build
+
+      # Zip com .next/ na raiz — ao extrair no servidor já cai na pasta correta
+      - name: Compactar .next
+        working-directory: app
+        run: zip -r ${{ github.workspace }}/next-build.zip .next
+
+      - name: Salvar artefato de build
+        uses: actions/upload-artifact@v4
+        with:
+          name: next-build
+          path: next-build.zip
+          retention-days: 1
+
+# ─────────────────────────────────────────────────────────────────────────────
+# JOB 2 — Deploy JKR Imóveis via cPanel API (sem SSH)
+#
+# Secrets necessários em github.com → Settings → Secrets → Actions:
+#   JKR_CPANEL_USER   → usuário cPanel (ex: jkrimoveis)
+#   JKR_CPANEL_PASS   → senha cPanel
+#
+# Valores fixos (não sensíveis, hardcoded abaixo):
+#   host:  jkrimoveispinda.com.br:2083
+#   path:  /home/jkrimoveis/public_html/vitrineimob
+# ─────────────────────────────────────────────────────────────────────────────
+  deploy-jkr:
+    name: Deploy JKR Imóveis
+    needs: build
+    if: github.event.inputs.cliente == 'jkr'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      CPANEL_HOST: jkrimoveispinda.com.br
+      CPANEL_USER: ${{ secrets.JKR_CPANEL_USER }}
+      CPANEL_PASS: ${{ secrets.JKR_CPANEL_PASS }}
+      DEPLOY_PATH: /home/jkrimoveis/public_html/vitrineimob
+
+    steps:
+      - name: Baixar artefato de build
+        uses: actions/download-artifact@v4
+        with:
+          name: next-build
+
+      - name: Fazer upload do zip via cPanel API
+        run: |
+          echo "=== Enviando next-build.zip para JKR ==="
+
+          # URL-encoda o caminho de destino
+          DIR_ENC=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$DEPLOY_PATH'))")
+
+          RESP=$(curl -k -s -w "\nHTTP_STATUS:%{http_code}" \
+            -u "$CPANEL_USER:$CPANEL_PASS" \
+            -F "file-1=@next-build.zip" \
+            "https://$CPANEL_HOST:2083/execute/Fileman/upload_files?dir=$DIR_ENC")
+
+          STATUS=$(echo "$RESP" | grep "HTTP_STATUS:" | cut -d: -f2)
+          BODY=$(echo "$RESP" | grep -v "HTTP_STATUS:")
+
+          echo "Status HTTP: $STATUS"
+          echo "Resposta: $BODY"
+
+          if [ "$STATUS" != "200" ]; then
+            echo "ERRO: upload falhou (status $STATUS)"
+            exit 1
+          fi
+
+      - name: Extrair zip no servidor via cPanel API
+        run: |
+          echo "=== Extraindo .next no servidor JKR ==="
+
+          RESP=$(curl -k -s -w "\nHTTP_STATUS:%{http_code}" \
+            -u "$CPANEL_USER:$CPANEL_PASS" \
+            -X POST \
+            --data-urlencode "dir=$DEPLOY_PATH" \
+            --data-urlencode "file=next-build.zip" \
+            "https://$CPANEL_HOST:2083/execute/Fileman/extract_an_archive")
+
+          STATUS=$(echo "$RESP" | grep "HTTP_STATUS:" | cut -d: -f2)
+          BODY=$(echo "$RESP" | grep -v "HTTP_STATUS:")
+
+          echo "Status HTTP: $STATUS"
+          echo "Resposta: $BODY"
+
+          if [ "$STATUS" != "200" ]; then
+            echo "ERRO: extração falhou (status $STATUS)"
+            exit 1
+          fi
+
+      - name: Criar pasta tmp (se não existir)
+        run: |
+          curl -k -s \
+            -u "$CPANEL_USER:$CPANEL_PASS" \
+            -X POST \
+            --data-urlencode "path=$DEPLOY_PATH/tmp" \
+            "https://$CPANEL_HOST:2083/execute/Fileman/create_directory" || true
+
+      - name: Reiniciar Phusion Passenger (restart.txt)
+        run: |
+          echo "=== Reiniciando app JKR ==="
+
+          RESP=$(curl -k -s -w "\nHTTP_STATUS:%{http_code}" \
+            -u "$CPANEL_USER:$CPANEL_PASS" \
+            -X POST \
+            --data-urlencode "dir=$DEPLOY_PATH/tmp" \
+            --data-urlencode "filename=restart.txt" \
+            --data-urlencode "content=Restart em $(date -u)" \
+            "https://$CPANEL_HOST:2083/execute/Fileman/save_file_content")
+
+          STATUS=$(echo "$RESP" | grep "HTTP_STATUS:" | cut -d: -f2)
+          echo "Status HTTP: $STATUS"
+
+          if [ "$STATUS" != "200" ]; then
+            echo "AVISO: não foi possível tocar restart.txt (status $STATUS)"
+            echo "Reinicie o app manualmente no cPanel se necessário."
+          else
+            echo "=== Deploy JKR concluído com sucesso! ==="
+          fi
+
+      - name: Limpar zip do servidor
+        run: |
+          curl -k -s \
+            -u "$CPANEL_USER:$CPANEL_PASS" \
+            -X POST \
+            --data-urlencode "dir=$DEPLOY_PATH" \
+            --data-urlencode "files[0]=next-build.zip" \
+            "https://$CPANEL_HOST:2083/execute/Fileman/trash_files" || true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Para adicionar novos clientes no futuro, copie o bloco "deploy-jkr" acima,
+# renomeie para "deploy-NOMECLIENTE", ajuste o `if:` e os valores de env.
+# Adicione o novo cliente na lista `options:` do input no topo do arquivo.
+# ─────────────────────────────────────────────────────────────────────────────
