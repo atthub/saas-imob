@@ -55,22 +55,20 @@ jobs:
           retention-days: 1
 
 # ─────────────────────────────────────────────────────────────────────────────
-# JOB 2 — Deploy JKR Imóveis via cPanel UAPI (HTTPS porta 2083)
+# JOB 2 — Deploy JKR Imóveis
 #
-# Estratégia:
-#   O PHP NÃO vai para /public_html/vitrineimob/ — Phusion Passenger
-#   intercepta todos os requests desse diretório (Next.js app).
+# Estratégia definitiva — 100% via HTTPS, sem SSH, sem PHP externo:
+#   1. Faz upload do zip via cPanel UAPI (já funciona)
+#   2. Chama POST /api/internal/deploy no próprio Next.js
+#      → o endpoint extrai o zip, reinicia o Passenger, limpa o zip
 #
-#   Solução: PHP vai para /public_html/ (raiz, PHP normal).
-#   O zip vai para /public_html/vitrineimob/ (onde o Next.js roda).
-#   O PHP lê o zip de vitrineimob/ e extrai lá mesmo.
-#   O PHP é chamado via https://dominio.com.br/_deploy-RUNID.php
+# O endpoint /api/internal/deploy está no código da app e é protegido
+# por Bearer token (variável DEPLOY_SECRET no servidor e no GitHub).
 #
-#   Ambos usam nome único por run_id — sem conflito em re-execuções.
-#
-# Secrets necessários:
-#   JKR_CPANEL_USER   → jkrimoveis
-#   JKR_CPANEL_TOKEN  → API token do cPanel
+# Secrets necessários no GitHub:
+#   JKR_CPANEL_USER    → jkrimoveis
+#   JKR_CPANEL_TOKEN   → token da API do cPanel
+#   JKR_DEPLOY_SECRET  → mesmo valor de DEPLOY_SECRET configurado no servidor
 # ─────────────────────────────────────────────────────────────────────────────
   deploy-jkr:
     name: Deploy JKR Imóveis
@@ -80,20 +78,15 @@ jobs:
     timeout-minutes: 20
 
     env:
-      CPANEL_HOST: jkrimoveispinda.com.br:2083
-      CPANEL_USER: ${{ secrets.JKR_CPANEL_USER }}
-      CPANEL_TOKEN: ${{ secrets.JKR_CPANEL_TOKEN }}
-      REMOTE_ROOT: /public_html             # PHP vai aqui — servido normalmente
-      REMOTE_APP:  /public_html/vitrineimob # ZIP vai aqui — Next.js app
-      SITE_ROOT:   https://jkrimoveispinda.com.br
-      SITE_URL:    https://jkrimoveispinda.com.br/vitrineimob
-      DEPLOY_ZIP:  deploy-${{ github.run_id }}.zip
-      DEPLOY_PHP:  _deploy-${{ github.run_id }}.php
+      CPANEL_HOST:    jkrimoveispinda.com.br:2083
+      CPANEL_USER:    ${{ secrets.JKR_CPANEL_USER }}
+      CPANEL_TOKEN:   ${{ secrets.JKR_CPANEL_TOKEN }}
+      DEPLOY_SECRET:  ${{ secrets.JKR_DEPLOY_SECRET }}
+      REMOTE_APP:     /public_html/vitrineimob
+      SITE_URL:       https://jkrimoveispinda.com.br/vitrineimob
+      DEPLOY_ZIP:     deploy-${{ github.run_id }}.zip
 
     steps:
-      - name: Checkout (para acessar .github/scripts)
-        uses: actions/checkout@v4
-
       - name: Baixar artefato de build
         uses: actions/download-artifact@v4
         with:
@@ -104,24 +97,9 @@ jobs:
           echo "=== Tamanho: $(du -sh next-build.zip | cut -f1) ==="
           echo "=== Arquivos: $(unzip -l next-build.zip | tail -1) ==="
 
-      - name: Upload PHP extrator (para /public_html/ — fora do Passenger)
+      - name: Upload zip para o servidor
         run: |
-          echo "=== Enviando $DEPLOY_PHP para $REMOTE_ROOT ==="
-          RESPONSE=$(curl -sk \
-            -H "Authorization: cpanel $CPANEL_USER:$CPANEL_TOKEN" \
-            -F "dir=$REMOTE_ROOT" \
-            -F "file-1=@.github/scripts/_deploy.php;filename=$DEPLOY_PHP" \
-            "https://$CPANEL_HOST/execute/Fileman/upload_files")
-          echo "Resposta: $RESPONSE"
-          STATUS=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status',0))" 2>/dev/null || echo "0")
-          if [ "$STATUS" != "1" ]; then
-            echo "ERRO: upload do PHP falhou"
-            exit 1
-          fi
-
-      - name: Upload zip do build (para /public_html/vitrineimob/)
-        run: |
-          echo "=== Enviando $DEPLOY_ZIP ($(du -sh next-build.zip | cut -f1)) para $REMOTE_APP ==="
+          echo "=== Enviando $DEPLOY_ZIP ($(du -sh next-build.zip | cut -f1)) ==="
           RESPONSE=$(curl -sk \
             -H "Authorization: cpanel $CPANEL_USER:$CPANEL_TOKEN" \
             -F "dir=$REMOTE_APP" \
@@ -130,21 +108,26 @@ jobs:
           echo "Resposta: $RESPONSE"
           STATUS=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status',0))" 2>/dev/null || echo "0")
           if [ "$STATUS" != "1" ]; then
-            echo "ERRO: upload do zip falhou"
+            echo "ERRO: upload falhou"
             exit 1
           fi
 
-      - name: Acionar extração via PHP
+      - name: Acionar deploy via endpoint Next.js
         run: |
-          sleep 3
-          echo "=== Chamando $SITE_ROOT/$DEPLOY_PHP?zip=$DEPLOY_ZIP ==="
-          RESULT=$(curl -sf --max-time 180 "$SITE_ROOT/$DEPLOY_PHP?zip=$DEPLOY_ZIP" 2>&1 || echo "CURL_ERROR: $?")
-          echo "Resultado: $RESULT"
-          if [ "$RESULT" != "OK" ]; then
-            echo "ERRO: extração falhou"
+          echo "=== Chamando $SITE_URL/api/internal/deploy ==="
+          RESPONSE=$(curl -sf --max-time 180 \
+            -X POST \
+            -H "Authorization: Bearer $DEPLOY_SECRET" \
+            -H "Content-Type: application/json" \
+            -d "{\"zip\":\"$DEPLOY_ZIP\"}" \
+            "$SITE_URL/api/internal/deploy" 2>&1 || echo "CURL_ERROR: $?")
+          echo "Resultado: $RESPONSE"
+          OK=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('ok',''))" 2>/dev/null || echo "")
+          if [ "$OK" != "True" ]; then
+            echo "ERRO: deploy via endpoint falhou"
             exit 1
           fi
-          echo "=== Extração e restart concluídos ==="
+          echo "=== Deploy concluído ==="
 
       - name: Verificar site após deploy
         run: |
@@ -159,6 +142,6 @@ jobs:
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Para adicionar novos clientes, copie o bloco "deploy-jkr",
-# renomeie para "deploy-NOMECLIENTE", ajuste if:, CPANEL_HOST, REMOTE_ROOT,
-# REMOTE_APP, SITE_ROOT, SITE_URL e crie os secrets correspondentes.
+# renomeie para "deploy-NOMECLIENTE", ajuste if:, CPANEL_HOST, REMOTE_APP,
+# SITE_URL e crie os secrets correspondentes.
 # ─────────────────────────────────────────────────────────────────────────────
