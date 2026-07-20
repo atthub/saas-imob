@@ -1,9 +1,10 @@
 <?php
 // Script temporário de deploy — auto-deleta após uso
-// Chamado pelo GitHub Actions após upload do zip via cPanel UAPI
-// Parâmetro: ?zip=nome-do-arquivo.zip (obrigatório)
+// Fica em /public_html/ (fora do Next.js/Passenger)
+// O zip fica em /public_html/vitrineimob/ e é extraído lá
+// Chamado por: https://dominio.com.br/_deploy-RUNID.php?zip=deploy-RUNID.zip
 
-$dir = __DIR__;
+$appDir = __DIR__ . '/vitrineimob';
 
 $zipname = isset($_GET['zip']) ? basename($_GET['zip']) : '';
 if (!$zipname || !preg_match('/^deploy-[0-9]+\.zip$/', $zipname)) {
@@ -11,8 +12,8 @@ if (!$zipname || !preg_match('/^deploy-[0-9]+\.zip$/', $zipname)) {
     die("Parametro zip invalido ou ausente");
 }
 
-$zip   = $dir . '/' . $zipname;
-$touch = $dir . '/tmp/restart.txt';
+$zip   = $appDir . '/' . $zipname;
+$touch = $appDir . '/tmp/restart.txt';
 
 if (!file_exists($zip)) {
     http_response_code(404);
@@ -25,24 +26,24 @@ if ($z->open($zip) !== TRUE) {
     die("Failed to open zip");
 }
 
-$z->extractTo($dir);
+$z->extractTo($appDir);
 $z->close();
 
 // Reinicia Passenger tocando tmp/restart.txt
 @mkdir(dirname($touch), 0755, true);
 file_put_contents($touch, date('c'));
 
-// Limpa todos os zips de deploy antigos (deploy-*.zip)
-foreach (glob($dir . '/deploy-*.zip') as $old) {
+// Limpa todos os zips de deploy antigos em vitrineimob/
+foreach (glob($appDir . '/deploy-*.zip') as $old) {
     @unlink($old);
 }
 
-// Limpa PHPs de deploy antigos (_deploy-*.php), exceto este
-foreach (glob($dir . '/_deploy-*.php') as $old) {
+// Limpa PHPs de deploy antigos na raiz (exceto este)
+foreach (glob(__DIR__ . '/_deploy-*.php') as $old) {
     if (realpath($old) !== realpath(__FILE__)) @unlink($old);
 }
 
-// Auto-deleta
+// Auto-deleta este script da raiz
 @unlink(__FILE__);
 
 echo "OK";

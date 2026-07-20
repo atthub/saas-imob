@@ -57,18 +57,20 @@ jobs:
 # ─────────────────────────────────────────────────────────────────────────────
 # JOB 2 — Deploy JKR Imóveis via cPanel UAPI (HTTPS porta 2083)
 #
-# Abordagem 100% via cPanel UAPI — sem PHP intermediário:
-#   1. Sobe o zip com nome único por run (evita conflito)
-#   2. Extrai via Fileman/extract_archive
-#   3. Reinicia Passenger via Fileman/save_file_content (tmp/restart.txt)
-#   4. Limpa o zip via Fileman/delete_files (best-effort)
+# Estratégia:
+#   O PHP NÃO vai para /public_html/vitrineimob/ — Phusion Passenger
+#   intercepta todos os requests desse diretório (Next.js app).
 #
-# Toda comunicação usa HTTPS (porta 443/2083) — nunca bloqueada por firewall.
-# Não usa PHP, não usa SSH — só cPanel UAPI com token de autenticação.
+#   Solução: PHP vai para /public_html/ (raiz, PHP normal).
+#   O zip vai para /public_html/vitrineimob/ (onde o Next.js roda).
+#   O PHP lê o zip de vitrineimob/ e extrai lá mesmo.
+#   O PHP é chamado via https://dominio.com.br/_deploy-RUNID.php
 #
-# Secrets necessários (GitHub → Settings → Secrets → Actions):
+#   Ambos usam nome único por run_id — sem conflito em re-execuções.
+#
+# Secrets necessários:
 #   JKR_CPANEL_USER   → jkrimoveis
-#   JKR_CPANEL_TOKEN  → API token criado no cPanel (Security → API Tokens)
+#   JKR_CPANEL_TOKEN  → API token do cPanel
 # ─────────────────────────────────────────────────────────────────────────────
   deploy-jkr:
     name: Deploy JKR Imóveis
@@ -81,11 +83,17 @@ jobs:
       CPANEL_HOST: jkrimoveispinda.com.br:2083
       CPANEL_USER: ${{ secrets.JKR_CPANEL_USER }}
       CPANEL_TOKEN: ${{ secrets.JKR_CPANEL_TOKEN }}
-      REMOTE_PATH: /public_html/vitrineimob
-      SITE_URL: https://jkrimoveispinda.com.br/vitrineimob
-      DEPLOY_ZIP: deploy-${{ github.run_id }}.zip
+      REMOTE_ROOT: /public_html             # PHP vai aqui — servido normalmente
+      REMOTE_APP:  /public_html/vitrineimob # ZIP vai aqui — Next.js app
+      SITE_ROOT:   https://jkrimoveispinda.com.br
+      SITE_URL:    https://jkrimoveispinda.com.br/vitrineimob
+      DEPLOY_ZIP:  deploy-${{ github.run_id }}.zip
+      DEPLOY_PHP:  _deploy-${{ github.run_id }}.php
 
     steps:
+      - name: Checkout (para acessar .github/scripts)
+        uses: actions/checkout@v4
+
       - name: Baixar artefato de build
         uses: actions/download-artifact@v4
         with:
@@ -96,58 +104,47 @@ jobs:
           echo "=== Tamanho: $(du -sh next-build.zip | cut -f1) ==="
           echo "=== Arquivos: $(unzip -l next-build.zip | tail -1) ==="
 
-      - name: Upload zip do build
+      - name: Upload PHP extrator (para /public_html/ — fora do Passenger)
         run: |
-          echo "=== Enviando $DEPLOY_ZIP ($(du -sh next-build.zip | cut -f1)) ==="
+          echo "=== Enviando $DEPLOY_PHP para $REMOTE_ROOT ==="
           RESPONSE=$(curl -sk \
             -H "Authorization: cpanel $CPANEL_USER:$CPANEL_TOKEN" \
-            -F "dir=$REMOTE_PATH" \
+            -F "dir=$REMOTE_ROOT" \
+            -F "file-1=@.github/scripts/_deploy.php;filename=$DEPLOY_PHP" \
+            "https://$CPANEL_HOST/execute/Fileman/upload_files")
+          echo "Resposta: $RESPONSE"
+          STATUS=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status',0))" 2>/dev/null || echo "0")
+          if [ "$STATUS" != "1" ]; then
+            echo "ERRO: upload do PHP falhou"
+            exit 1
+          fi
+
+      - name: Upload zip do build (para /public_html/vitrineimob/)
+        run: |
+          echo "=== Enviando $DEPLOY_ZIP ($(du -sh next-build.zip | cut -f1)) para $REMOTE_APP ==="
+          RESPONSE=$(curl -sk \
+            -H "Authorization: cpanel $CPANEL_USER:$CPANEL_TOKEN" \
+            -F "dir=$REMOTE_APP" \
             -F "file-1=@next-build.zip;filename=$DEPLOY_ZIP" \
             "https://$CPANEL_HOST/execute/Fileman/upload_files")
           echo "Resposta: $RESPONSE"
           STATUS=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status',0))" 2>/dev/null || echo "0")
           if [ "$STATUS" != "1" ]; then
-            echo "ERRO: upload do zip falhou — resposta acima"
+            echo "ERRO: upload do zip falhou"
             exit 1
           fi
 
-      - name: Extrair zip via cPanel API
+      - name: Acionar extração via PHP
         run: |
-          echo "=== Extraindo $DEPLOY_ZIP em $REMOTE_PATH ==="
-          RESPONSE=$(curl -sk \
-            -H "Authorization: cpanel $CPANEL_USER:$CPANEL_TOKEN" \
-            -d "dir=$REMOTE_PATH" \
-            -d "file=$DEPLOY_ZIP" \
-            "https://$CPANEL_HOST/execute/Fileman/extract_archive")
-          echo "Resposta: $RESPONSE"
-          STATUS=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status',0))" 2>/dev/null || echo "0")
-          if [ "$STATUS" != "1" ]; then
-            echo "ERRO: extração falhou — resposta acima"
+          sleep 3
+          echo "=== Chamando $SITE_ROOT/$DEPLOY_PHP?zip=$DEPLOY_ZIP ==="
+          RESULT=$(curl -sf --max-time 180 "$SITE_ROOT/$DEPLOY_PHP?zip=$DEPLOY_ZIP" 2>&1 || echo "CURL_ERROR: $?")
+          echo "Resultado: $RESULT"
+          if [ "$RESULT" != "OK" ]; then
+            echo "ERRO: extração falhou"
             exit 1
           fi
-          echo "=== Extração concluída ==="
-
-      - name: Reiniciar Passenger (tmp/restart.txt)
-        run: |
-          echo "=== Reiniciando Passenger ==="
-          RESPONSE=$(curl -sk \
-            -H "Authorization: cpanel $CPANEL_USER:$CPANEL_TOKEN" \
-            --data-urlencode "dir=$REMOTE_PATH/tmp" \
-            --data-urlencode "filename=restart.txt" \
-            --data-urlencode "content=restarted at $(date -u)" \
-            "https://$CPANEL_HOST/execute/Fileman/save_file_content")
-          echo "Resposta: $RESPONSE"
-          echo "=== Passenger reiniciado ==="
-
-      - name: Limpar zip do servidor
-        run: |
-          echo "=== Removendo $DEPLOY_ZIP do servidor ==="
-          curl -sk \
-            -H "Authorization: cpanel $CPANEL_USER:$CPANEL_TOKEN" \
-            -d "files[0][path]=$REMOTE_PATH" \
-            -d "files[0][name]=$DEPLOY_ZIP" \
-            "https://$CPANEL_HOST/execute/Fileman/delete_files" || true
-          echo "Limpeza concluída"
+          echo "=== Extração e restart concluídos ==="
 
       - name: Verificar site após deploy
         run: |
@@ -162,6 +159,6 @@ jobs:
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Para adicionar novos clientes, copie o bloco "deploy-jkr",
-# renomeie para "deploy-NOMECLIENTE", ajuste if:, CPANEL_HOST, REMOTE_PATH,
-# SITE_URL e crie os secrets correspondentes no GitHub.
+# renomeie para "deploy-NOMECLIENTE", ajuste if:, CPANEL_HOST, REMOTE_ROOT,
+# REMOTE_APP, SITE_ROOT, SITE_URL e crie os secrets correspondentes.
 # ─────────────────────────────────────────────────────────────────────────────
