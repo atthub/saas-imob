@@ -1,6 +1,7 @@
 import PwaInstallButton from "@/app/_components/PwaInstallButton";
 import { obterSessaoAtual } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
+import { getConfigs } from "@/lib/config";
 import UserDropdown from "./_components/UserDropdown";
 import AdminSidebar from "./_components/AdminSidebar";
 
@@ -76,13 +77,13 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     try {
       const imob = await prisma.imobiliaria.findUnique({
         where: { id: sessao.imobiliariaId },
-        select: { nome: true, landingPagesHabilitado: true, comissoesHabilitado: true }
+        select: { nome: true }
       });
-      if (imob) {
-        nomeImobiliaria = imob.nome;
-        landingPagesHabilitado = imob.landingPagesHabilitado;
-        comissoesHabilitado = imob.comissoesHabilitado;
-      }
+      if (imob) nomeImobiliaria = imob.nome;
+
+      const cfgs = await getConfigs(sessao.imobiliariaId, ["landingPagesHabilitado", "comissoesHabilitado"]);
+      landingPagesHabilitado = cfgs["landingPagesHabilitado"] === "true";
+      comissoesHabilitado    = cfgs["comissoesHabilitado"]    === "true";
     } catch {}
   }
 

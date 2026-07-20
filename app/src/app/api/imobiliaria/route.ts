@@ -47,12 +47,10 @@ const SELECAO_PADRAO = {
   itensPorPagina: true,
   tipoPaginacao: true,
   modoDestaque: true,
-  xmlHabilitado: true,
-  xmlToken: true
 } as const;
-// Nota: mcmvHabilitado, blogMenuHabilitado, blogHomepageHabilitado são lidos via
-// $queryRaw (bypassa DMMF) pois o Prisma Client do servidor pode ter sido gerado
-// antes desses campos existirem no schema local.
+// Todos os toggles (mcmvHabilitado, xmlHabilitado, xmlToken, blogMenuHabilitado,
+// blogHomepageHabilitado, landingPagesHabilitado, comissoesHabilitado) são
+// armazenados na tabela configuracoes_imobiliaria e lidos via getConfigs.
 
 // GET /api/imobiliaria -> dados completos da imobiliária da sessão atual,
 // usados na tela de Configurações (identidade visual, contato, marca d'água).
@@ -71,26 +69,18 @@ export async function GET() {
     return NextResponse.json({ erro: "Imobiliária não encontrada." }, { status: 404 });
   }
 
-  // mcmvHabilitado: coluna real em imobiliarias (garantida pelo startup em lib/prisma.ts)
-  // blogMenuHabilitado / blogHomepageHabilitado: tabela chave-valor configuracoes_imobiliaria
-  let mcmvHabilitado = false;
-  try {
-    const rows = await prisma.$queryRawUnsafe<[{ mcmvHabilitado: unknown }]>(
-      "SELECT mcmvHabilitado FROM imobiliarias WHERE id = ?",
-      sessao.imobiliariaId
-    );
-    mcmvHabilitado = toBool(rows[0]?.mcmvHabilitado, false);
-  } catch { /* coluna não existe */ }
+  // Todos os toggles vêm da tabela chave-valor configuracoes_imobiliaria
+  const cfgs = await getConfigs(sessao.imobiliariaId, [
+    "mcmvHabilitado", "xmlHabilitado", "xmlToken",
+    "blogMenuHabilitado", "blogHomepageHabilitado",
+  ]);
+  const mcmvHabilitado         = cfgs["mcmvHabilitado"]         === "true";
+  const xmlHabilitado          = cfgs["xmlHabilitado"]          === "true";
+  const xmlToken               = cfgs["xmlToken"]               ?? null;
+  const blogMenuHabilitado     = cfgs["blogMenuHabilitado"]     !== "false" && cfgs["blogMenuHabilitado"] !== "0";  // default true
+  const blogHomepageHabilitado = cfgs["blogHomepageHabilitado"] === "true";
 
-  const cfgs = await getConfigs(sessao.imobiliariaId, ["blogMenuHabilitado", "blogHomepageHabilitado"]);
-  const blogMenuHabilitado     = cfgs["blogMenuHabilitado"]     !== null && cfgs["blogMenuHabilitado"]     !== undefined
-    ? cfgs["blogMenuHabilitado"] === "true" || cfgs["blogMenuHabilitado"] === "1"
-    : true;  // default: menu blog visível
-  const blogHomepageHabilitado = cfgs["blogHomepageHabilitado"] !== null && cfgs["blogHomepageHabilitado"] !== undefined
-    ? cfgs["blogHomepageHabilitado"] === "true" || cfgs["blogHomepageHabilitado"] === "1"
-    : false; // default: bloco blog oculto na homepage
-
-  return NextResponse.json({ imobiliaria: { ...imobiliaria, mcmvHabilitado, blogMenuHabilitado, blogHomepageHabilitado } });
+  return NextResponse.json({ imobiliaria: { ...imobiliaria, mcmvHabilitado, xmlHabilitado, xmlToken, blogMenuHabilitado, blogHomepageHabilitado } });
 }
 
 // PUT /api/imobiliaria -> atualiza as configurações gerais (identidade
@@ -218,12 +208,6 @@ export async function PUT(request: NextRequest) {
     ...(typeof body.modoDestaque === "string" && ["grade", "especial"].includes(body.modoDestaque)
       ? { modoDestaque: body.modoDestaque }
       : {}),
-    ...(typeof body.xmlHabilitado === "boolean" ? { xmlHabilitado: body.xmlHabilitado } : {}),
-    ...(body.xmlToken === null
-      ? { xmlToken: null }
-      : typeof body.xmlToken === "string" && body.xmlToken.length > 0
-      ? { xmlToken: body.xmlToken.slice(0, 100) }
-      : {})
   };
 
   // Remove chaves cujo valor ficou undefined (campo não enviado/invalido),
@@ -238,42 +222,36 @@ export async function PUT(request: NextRequest) {
     select: SELECAO_PADRAO
   });
 
-  // mcmvHabilitado: coluna real em imobiliarias (via $executeRawUnsafe)
-  // blogMenuHabilitado / blogHomepageHabilitado: tabela chave-valor (via setConfig)
-  let mcmvHabilitado = false;
-
-  if (typeof body.mcmvHabilitado === "boolean") {
-    try {
-      await prisma.$executeRawUnsafe(
-        "UPDATE imobiliarias SET mcmvHabilitado = ? WHERE id = ?",
-        body.mcmvHabilitado ? 1 : 0,
-        sessao.imobiliariaId
-      );
-    } catch { /* coluna não existe */ }
+  // Todos os toggles salvos na tabela chave-valor configuracoes_imobiliaria
+  const toggles: Record<string, boolean | string | null> = {
+    mcmvHabilitado:         body.mcmvHabilitado,
+    xmlHabilitado:          body.xmlHabilitado,
+    xmlToken:               body.xmlToken,
+    blogMenuHabilitado:     body.blogMenuHabilitado,
+    blogHomepageHabilitado: body.blogHomepageHabilitado,
+  };
+  for (const [chave, valor] of Object.entries(toggles)) {
+    if (typeof valor === "boolean") {
+      await setConfig(sessao.imobiliariaId, chave, valor);
+    } else if (chave === "xmlToken") {
+      if (valor === null) {
+        await setConfig(sessao.imobiliariaId, "xmlToken", "");
+      } else if (typeof valor === "string" && valor.length > 0) {
+        await setConfig(sessao.imobiliariaId, "xmlToken", valor.slice(0, 100));
+      }
+    }
   }
-  if (typeof body.blogMenuHabilitado === "boolean") {
-    await setConfig(sessao.imobiliariaId, "blogMenuHabilitado", body.blogMenuHabilitado);
-  }
-  if (typeof body.blogHomepageHabilitado === "boolean") {
-    await setConfig(sessao.imobiliariaId, "blogHomepageHabilitado", body.blogHomepageHabilitado);
-  }
 
-  // Lê estado real do banco após salvar
-  try {
-    const rows = await prisma.$queryRawUnsafe<[{ mcmvHabilitado: unknown }]>(
-      "SELECT mcmvHabilitado FROM imobiliarias WHERE id = ?",
-      sessao.imobiliariaId
-    );
-    mcmvHabilitado = toBool(rows[0]?.mcmvHabilitado, false);
-  } catch { /* coluna não existe */ }
+  // Lê estado real após salvar
+  const cfgs = await getConfigs(sessao.imobiliariaId, [
+    "mcmvHabilitado", "xmlHabilitado", "xmlToken",
+    "blogMenuHabilitado", "blogHomepageHabilitado",
+  ]);
+  const mcmvHabilitado         = cfgs["mcmvHabilitado"]         === "true";
+  const xmlHabilitado          = cfgs["xmlHabilitado"]          === "true";
+  const xmlToken               = cfgs["xmlToken"]               ?? null;
+  const blogMenuHabilitado     = cfgs["blogMenuHabilitado"]     !== "false" && cfgs["blogMenuHabilitado"] !== "0";
+  const blogHomepageHabilitado = cfgs["blogHomepageHabilitado"] === "true";
 
-  const cfgs = await getConfigs(sessao.imobiliariaId, ["blogMenuHabilitado", "blogHomepageHabilitado"]);
-  const blogMenuHabilitado     = cfgs["blogMenuHabilitado"]     !== null && cfgs["blogMenuHabilitado"]     !== undefined
-    ? cfgs["blogMenuHabilitado"] === "true" || cfgs["blogMenuHabilitado"] === "1"
-    : true;
-  const blogHomepageHabilitado = cfgs["blogHomepageHabilitado"] !== null && cfgs["blogHomepageHabilitado"] !== undefined
-    ? cfgs["blogHomepageHabilitado"] === "true" || cfgs["blogHomepageHabilitado"] === "1"
-    : false;
-
-  return NextResponse.json({ imobiliaria: { ...imobiliaria, mcmvHabilitado, blogMenuHabilitado, blogHomepageHabilitado } });
+  return NextResponse.json({ imobiliaria: { ...imobiliaria, mcmvHabilitado, xmlHabilitado, xmlToken, blogMenuHabilitado, blogHomepageHabilitado } });
 }

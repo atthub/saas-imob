@@ -4,6 +4,7 @@
  */
 import { prisma } from "@/lib/prisma";
 import { obterImobiliariaAtual } from "@/lib/tenant";
+import { getConfigs } from "@/lib/config";
 
 // ─── Tipos ──────────────────────────────────────────────────────────────────
 
@@ -49,10 +50,15 @@ export async function verificarAcessoXml(
   if (!imobiliaria) {
     return { ok: false, status: 404, erro: "Imobiliária não encontrada." };
   }
-  if (!imobiliaria.xmlHabilitado) {
+  // xmlHabilitado e xmlToken são armazenados na tabela chave-valor
+  const cfgs = await getConfigs(imobiliaria.id, ["xmlHabilitado", "xmlToken"]);
+  const xmlHabilitado = cfgs["xmlHabilitado"] === "true" || cfgs["xmlHabilitado"] === "1";
+  const xmlToken = cfgs["xmlToken"] ?? null;
+
+  if (!xmlHabilitado) {
     return { ok: false, status: 403, erro: "Feed XML não habilitado para esta imobiliária." };
   }
-  if (!imobiliaria.xmlToken || token !== imobiliaria.xmlToken) {
+  if (!xmlToken || token !== xmlToken) {
     return { ok: false, status: 401, erro: "Token inválido ou ausente." };
   }
   return { ok: true, imobiliaria };

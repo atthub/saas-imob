@@ -10,7 +10,7 @@ on:
         type: choice
         options:
           - jkr          # JKR Imóveis — jkrimoveispinda.com.br
-          # Adicione novos clientes aqui no futuro
+          - vp           # VP Negócios Imobiliários — vpnegociosimobiliarios.com.br
 
 # ─────────────────────────────────────────────────────────────────────────────
 # JOB 1 — Build (compartilhado por todos os clientes)
@@ -141,7 +141,79 @@ jobs:
           fi
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Para adicionar novos clientes, copie o bloco "deploy-jkr",
-# renomeie para "deploy-NOMECLIENTE", ajuste if:, CPANEL_HOST, REMOTE_APP,
-# SITE_URL e crie os secrets correspondentes.
+# JOB 3 — Deploy VP Negócios Imobiliários
+# ─────────────────────────────────────────────────────────────────────────────
+  deploy-vp:
+    name: Deploy VP Negócios
+    needs: build
+    if: github.event.inputs.cliente == 'vp'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      CPANEL_HOST:    vpnegociosimobiliarios.com.br:2083
+      CPANEL_USER:    ${{ secrets.VP_CPANEL_USER }}
+      CPANEL_TOKEN:   ${{ secrets.VP_CPANEL_TOKEN }}
+      DEPLOY_SECRET:  ${{ secrets.VP_DEPLOY_SECRET }}
+      REMOTE_APP:     /public_html/vitrineimob
+      SITE_URL:       https://vpnegociosimobiliarios.com.br
+      DEPLOY_ZIP:     deploy-${{ github.run_id }}.zip
+
+    steps:
+      - name: Baixar artefato de build
+        uses: actions/download-artifact@v4
+        with:
+          name: next-build
+
+      - name: Verificar zip
+        run: |
+          echo "=== Tamanho: $(du -sh next-build.zip | cut -f1) ==="
+          echo "=== Arquivos: $(unzip -l next-build.zip | tail -1) ==="
+
+      - name: Upload zip para o servidor
+        run: |
+          echo "=== Enviando $DEPLOY_ZIP ($(du -sh next-build.zip | cut -f1)) ==="
+          RESPONSE=$(curl -sk \
+            -H "Authorization: cpanel $CPANEL_USER:$CPANEL_TOKEN" \
+            -F "dir=$REMOTE_APP" \
+            -F "file-1=@next-build.zip;filename=$DEPLOY_ZIP" \
+            "https://$CPANEL_HOST/execute/Fileman/upload_files")
+          echo "Resposta: $RESPONSE"
+          STATUS=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status',0))" 2>/dev/null || echo "0")
+          if [ "$STATUS" != "1" ]; then
+            echo "ERRO: upload falhou"
+            exit 1
+          fi
+
+      - name: Acionar deploy via endpoint Next.js
+        run: |
+          echo "=== Chamando $SITE_URL/api/internal/deploy ==="
+          RESPONSE=$(curl -sf --max-time 180 \
+            -X POST \
+            -H "Authorization: Bearer $DEPLOY_SECRET" \
+            -H "Content-Type: application/json" \
+            -d "{\"zip\":\"$DEPLOY_ZIP\"}" \
+            "$SITE_URL/api/internal/deploy" 2>&1 || echo "CURL_ERROR: $?")
+          echo "Resultado: $RESPONSE"
+          OK=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('ok',''))" 2>/dev/null || echo "")
+          if [ "$OK" != "True" ]; then
+            echo "ERRO: deploy via endpoint falhou"
+            exit 1
+          fi
+          echo "=== Deploy concluído ==="
+
+      - name: Verificar site após deploy
+        run: |
+          sleep 10
+          HTTP_CODE=$(curl -sk -o /dev/null -w "%{http_code}" "$SITE_URL" || echo "000")
+          echo "HTTP status VP: $HTTP_CODE"
+          if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "301" ] || [ "$HTTP_CODE" = "302" ]; then
+            echo "=== Deploy VP finalizado com sucesso em $(date -u) ==="
+          else
+            echo "AVISO: site retornou HTTP $HTTP_CODE — pode estar reiniciando"
+          fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Para adicionar novos clientes, copie um bloco de deploy acima,
+# renomeie, ajuste if:, CPANEL_HOST, SITE_URL e crie os secrets.
 # ─────────────────────────────────────────────────────────────────────────────

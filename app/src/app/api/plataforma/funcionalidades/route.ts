@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { obterSessaoAtual } from "@/lib/session";
 import { obterImobiliariaAtual } from "@/lib/tenant";
+import { getConfigs, setConfig } from "@/lib/config";
 
 async function exigirSuperAdmin() {
   const sessao = await obterSessaoAtual();
@@ -22,10 +22,12 @@ export async function GET() {
     return NextResponse.json({ erro: "Imobiliária não encontrada." }, { status: 404 });
   }
 
+  const cfgs = await getConfigs(imobiliaria.id, ["landingPagesHabilitado", "comissoesHabilitado"]);
+
   return NextResponse.json({
     funcionalidades: {
-      landingPagesHabilitado: imobiliaria?.landingPagesHabilitado ?? false,
-      comissoesHabilitado: imobiliaria?.comissoesHabilitado ?? false
+      landingPagesHabilitado: cfgs["landingPagesHabilitado"] === "true",
+      comissoesHabilitado:    cfgs["comissoesHabilitado"]    === "true",
     }
   });
 }
@@ -43,12 +45,10 @@ export async function PUT(request: NextRequest) {
 
   const body = await request.json().catch(() => ({}));
   const landingPagesHabilitado = Boolean(body.landingPagesHabilitado);
-  const comissoesHabilitado = Boolean(body.comissoesHabilitado);
+  const comissoesHabilitado    = Boolean(body.comissoesHabilitado);
 
-  await prisma.imobiliaria.update({
-    where: { id: imobiliaria.id },
-    data: { landingPagesHabilitado, comissoesHabilitado }
-  });
+  await setConfig(imobiliaria.id, "landingPagesHabilitado", landingPagesHabilitado);
+  await setConfig(imobiliaria.id, "comissoesHabilitado",    comissoesHabilitado);
 
   return NextResponse.json({
     funcionalidades: { landingPagesHabilitado, comissoesHabilitado }

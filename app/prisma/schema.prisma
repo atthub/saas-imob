@@ -72,16 +72,11 @@ model Imobiliaria {
   // Layout dos imóveis em destaque na homepage
   modoDestaque    String   @default("grade") // grade | especial
 
-  // Feed XML — portais de imóveis (ex: ZAP, Viva Real, OLX)
-  xmlHabilitado   Boolean  @default(false)
-  xmlToken        String?  // token de autenticação para o feed (opcional)
-
-  // Funcionalidades premium (habilitadas seletivamente por imobiliária)
-  landingPagesHabilitado  Boolean  @default(false)
-  comissoesHabilitado     Boolean  @default(false)
-  mcmvHabilitado          Boolean  @default(false) // simulador Minha Casa Minha Vida
-  // blogMenuHabilitado e blogHomepageHabilitado são lidos via $queryRaw (colunas novas,
-  // não incluídas aqui para evitar erro "Unknown column" no servidor antes do ALTER TABLE)
+  // Funcionalidades e toggles são gerenciados via tabela chave-valor
+  // configuracoes_imobiliaria (modelo ConfiguracaoImobiliaria abaixo).
+  // Chaves: xmlHabilitado, xmlToken, mcmvHabilitado,
+  //         landingPagesHabilitado, comissoesHabilitado,
+  //         blogMenuHabilitado, blogHomepageHabilitado
 
   ativo           Boolean  @default(true)
   criadoEm        DateTime @default(now())

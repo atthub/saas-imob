@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { obterImobiliariaAtual } from "@/lib/tenant";
+import { getConfigs } from "@/lib/config";
 
 export const dynamic = "force-dynamic";
 
@@ -21,8 +22,6 @@ export async function GET(request: NextRequest) {
     select: {
       id: true,
       nome: true,
-      xmlHabilitado: true,
-      xmlToken: true,
       cidadePrincipal: true,
       estadoPrincipal: true,
       telefone: true,
@@ -34,11 +33,16 @@ export async function GET(request: NextRequest) {
     return new NextResponse("Não encontrado.", { status: 404 });
   }
 
-  if (!imob.xmlHabilitado) {
+  // xmlHabilitado e xmlToken lidos da tabela chave-valor
+  const cfgs = await getConfigs(imobiliariaBase.id, ["xmlHabilitado", "xmlToken"]);
+  const xmlHabilitado = cfgs["xmlHabilitado"] === "true";
+  const xmlToken      = cfgs["xmlToken"] ?? null;
+
+  if (!xmlHabilitado) {
     return new NextResponse("Feed XML não habilitado.", { status: 403 });
   }
 
-  if (imob.xmlToken && imob.xmlToken !== tokenParam) {
+  if (xmlToken && xmlToken !== tokenParam) {
     return new NextResponse("Token inválido.", { status: 401 });
   }
 

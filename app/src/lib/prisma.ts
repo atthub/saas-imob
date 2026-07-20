@@ -19,15 +19,7 @@ if (!globalForPrisma.schemaInited) {
   globalForPrisma.schemaInited = true;
   globalForPrisma.prisma = prisma;
 
-  // 1) Garante colunas legadas em imobiliarias (mcmvHabilitado)
-  prisma.$executeRawUnsafe(`
-    ALTER TABLE imobiliarias
-      ADD COLUMN IF NOT EXISTS mcmvHabilitado TINYINT(1) NOT NULL DEFAULT 0
-  `).catch((e: unknown) => {
-    console.error("[prisma] Aviso ao garantir colunas legadas:", e);
-  });
-
-  // 2) Cria tabela chave-valor configuracoes_imobiliaria se não existir
+  // 1) Cria tabela chave-valor configuracoes_imobiliaria se não existir
   prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS configuracoes_imobiliaria (
       id            VARCHAR(30)  NOT NULL,
@@ -40,7 +32,34 @@ if (!globalForPrisma.schemaInited) {
       UNIQUE KEY uq_imob_chave (imobiliariaId, chave),
       KEY idx_imobiliaria (imobiliariaId)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  `).catch((e: unknown) => {
+  `).then(() => {
+    // 2) Migração one-time: copia toggles das colunas legadas da tabela imobiliarias
+    //    para configuracoes_imobiliaria. INSERT IGNORE não sobrescreve valores já salvos.
+    //    Cada bloco é envolvido em catch individual pois a coluna pode não existir.
+    const migracoesBoolean = [
+      "mcmvHabilitado",
+      "xmlHabilitado",
+      "landingPagesHabilitado",
+      "comissoesHabilitado",
+    ];
+    for (const chave of migracoesBoolean) {
+      prisma.$executeRawUnsafe(`
+        INSERT IGNORE INTO configuracoes_imobiliaria (id, imobiliariaId, chave, valor, criadoEm, atualizadoEm)
+        SELECT SUBSTR(MD5(CONCAT(id, '${chave}')), 1, 25), id, '${chave}',
+               IF(${chave} = 1, 'true', 'false'), NOW(3), NOW(3)
+        FROM imobiliarias
+        WHERE ${chave} = 1
+      `).catch(() => { /* coluna pode não existir — ignorar */ });
+    }
+    // xmlToken é string, não boolean
+    prisma.$executeRawUnsafe(`
+      INSERT IGNORE INTO configuracoes_imobiliaria (id, imobiliariaId, chave, valor, criadoEm, atualizadoEm)
+      SELECT SUBSTR(MD5(CONCAT(id, 'xmlToken')), 1, 25), id, 'xmlToken',
+             xmlToken, NOW(3), NOW(3)
+      FROM imobiliarias
+      WHERE xmlToken IS NOT NULL AND xmlToken != ''
+    `).catch(() => { /* coluna pode não existir — ignorar */ });
+  }).catch((e: unknown) => {
     console.error("[prisma] Aviso ao criar configuracoes_imobiliaria:", e);
   });
 }
