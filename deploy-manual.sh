@@ -65,12 +65,11 @@ case "$CLIENTE" in
     ;;
 
   eliana)
-    # TODO: preencher com as credenciais reais da Eliana Godoy
-    SSH_USER="TODO_eliana_user"
-    SSH_HOST="TODO_eliana_host"
-    SSH_PORT="TODO_eliana_port"
-    NODE_BIN="TODO_node_path"
-    APP_DIR="/home/TODO_eliana_user/public_html/vitrineimob"
+    SSH_USER="elianagodoy"
+    SSH_HOST="128.201.75.100"
+    SSH_PORT="1158"
+    NODE_BIN="/home/elianagodoy/nodevenv/vitrine.elianagodoy.com.br/22/bin/node"
+    APP_DIR="/home/elianagodoy/vitrine.elianagodoy.com.br"
     ;;
 
   vp)
