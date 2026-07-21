@@ -53,25 +53,14 @@ export default async function HomePage() {
   const blogHomepageHabilitado = await getConfig(imobiliaria.id, "blogHomepageHabilitado", false);
 
   const agora = new Date();
-  const [banners, promocoesAtivas, imoveisDestaque, artigosRecentes] = await Promise.all([
+
+  // Usa $queryRaw para promoções e artigos — evita crash quando o Prisma Client
+  // do servidor não tem esses models gerados (client desatualizado no node_modules).
+  const [banners, imoveisDestaque] = await Promise.all([
     prisma.banner.findMany({
       where: { imobiliariaId: imobiliaria.id, ativo: true },
       orderBy: { ordem: "asc" },
       select: { id: true, titulo: true, urlDesktop: true, urlMobile: true, link: true }
-    }),
-    prisma.promocao.findMany({
-      where: {
-        imobiliariaId: imobiliaria.id, ativo: true,
-        OR: [
-          { dataInicio: null, dataFim: null },
-          { dataInicio: { lte: agora }, dataFim: null },
-          { dataInicio: null, dataFim: { gte: agora } },
-          { dataInicio: { lte: agora }, dataFim: { gte: agora } },
-        ]
-      },
-      orderBy: { ordem: "asc" },
-      take: 4,
-      select: { id: true, titulo: true, subtitulo: true, imagemUrl: true }
     }),
     prisma.imovel.findMany({
       where: { imobiliariaId: imobiliaria.id, destaque: true, status: "DISPONIVEL" },
@@ -79,16 +68,37 @@ export default async function HomePage() {
       orderBy: { criadoEm: "desc" },
       select: SELECT_RESUMO
     }),
-    // Artigos recentes — só busca se o toggle estiver ativo
-    blogHomepageHabilitado
-      ? prisma.artigo.findMany({
-          where: { imobiliariaId: imobiliaria.id, ativo: true },
-          orderBy: { publicadoEm: "desc" },
-          take: 3,
-          select: { id: true, titulo: true, slug: true, resumo: true, imagemCapaUrl: true, categoria: true, publicadoEm: true }
-        })
-      : Promise.resolve([])
   ]);
+
+  type PromoResumo = { id: string; titulo: string; subtitulo: string | null; imagemUrl: string | null };
+  let promocoesAtivas: PromoResumo[] = [];
+  try {
+    promocoesAtivas = await prisma.$queryRaw<PromoResumo[]>`
+      SELECT id, titulo, subtitulo, imagemUrl FROM promocoes
+      WHERE imobiliariaId = ${imobiliaria.id} AND ativo = 1
+        AND (
+          (dataInicio IS NULL AND dataFim IS NULL)
+          OR (dataInicio <= ${agora} AND dataFim IS NULL)
+          OR (dataInicio IS NULL AND dataFim >= ${agora})
+          OR (dataInicio <= ${agora} AND dataFim >= ${agora})
+        )
+      ORDER BY ordem ASC
+      LIMIT 4
+    `;
+  } catch { promocoesAtivas = []; }
+
+  type ArtigoResumo = { id: string; titulo: string; slug: string; resumo: string | null; imagemCapaUrl: string | null; categoria: string | null; publicadoEm: Date | null };
+  let artigosRecentes: ArtigoResumo[] = [];
+  if (blogHomepageHabilitado) {
+    try {
+      artigosRecentes = await prisma.$queryRaw<ArtigoResumo[]>`
+        SELECT id, titulo, slug, resumo, imagemCapaUrl, categoria, publicadoEm FROM artigos
+        WHERE imobiliariaId = ${imobiliaria.id} AND ativo = 1
+        ORDER BY publicadoEm DESC
+        LIMIT 3
+      `;
+    } catch { artigosRecentes = []; }
+  }
 
   const idsDestaque = imoveisDestaque.map((imovel) => imovel.id);
 
