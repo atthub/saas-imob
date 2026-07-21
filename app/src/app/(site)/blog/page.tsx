@@ -9,14 +9,16 @@ export default async function BlogPage() {
   const imobiliaria = await obterImobiliariaAtual();
   if (!imobiliaria) return null;
 
-  const artigos = await prisma.artigo.findMany({
-    where: { imobiliariaId: imobiliaria.id, ativo: true },
-    orderBy: { publicadoEm: "desc" },
-    select: {
-      id: true, titulo: true, slug: true, resumo: true,
-      imagemCapaUrl: true, categoria: true, autor: true, publicadoEm: true
-    }
-  });
+  type ArtigoLista = { id: string; titulo: string; slug: string; resumo: string | null; imagemCapaUrl: string | null; categoria: string | null; autor: string | null; publicadoEm: Date };
+  let artigos: ArtigoLista[] = [];
+  try {
+    artigos = await prisma.$queryRaw<ArtigoLista[]>`
+      SELECT id, titulo, slug, resumo, imagemCapaUrl, categoria, autor, publicadoEm
+      FROM artigos
+      WHERE imobiliariaId = ${imobiliaria.id} AND ativo = 1
+      ORDER BY publicadoEm DESC
+    `;
+  } catch { artigos = []; }
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-16">

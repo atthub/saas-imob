@@ -10,23 +10,22 @@ export default async function PromocoesPage() {
   if (!imobiliaria) return null;
 
   const agora = new Date();
-  // Usa apenas campos seguros (existentes no Prisma Client do servidor)
-  // Os campos novos (tipoLink, codigoImovel, captarLeads, imagemUrlMobile)
-  // são lidos na página de detalhe via $queryRaw.
-  const promocoes = await prisma.promocao.findMany({
-    where: {
-      imobiliariaId: imobiliaria.id,
-      ativo: true,
-      OR: [
-        { dataInicio: null, dataFim: null },
-        { dataInicio: { lte: agora }, dataFim: null },
-        { dataInicio: null, dataFim: { gte: agora } },
-        { dataInicio: { lte: agora }, dataFim: { gte: agora } },
-      ]
-    },
-    orderBy: { ordem: "asc" },
-    select: { id: true, titulo: true, subtitulo: true, descricao: true, imagemUrl: true, dataInicio: true, dataFim: true }
-  });
+  type PromoLista = { id: string; titulo: string; subtitulo: string | null; descricao: string | null; imagemUrl: string | null; dataInicio: Date | null; dataFim: Date | null };
+  let promocoes: PromoLista[] = [];
+  try {
+    promocoes = await prisma.$queryRaw<PromoLista[]>`
+      SELECT id, titulo, subtitulo, descricao, imagemUrl, dataInicio, dataFim
+      FROM promocoes
+      WHERE imobiliariaId = ${imobiliaria.id} AND ativo = 1
+        AND (
+          (dataInicio IS NULL AND dataFim IS NULL)
+          OR (dataInicio <= ${agora} AND dataFim IS NULL)
+          OR (dataInicio IS NULL AND dataFim >= ${agora})
+          OR (dataInicio <= ${agora} AND dataFim >= ${agora})
+        )
+      ORDER BY ordem ASC
+    `;
+  } catch { promocoes = []; }
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-16">

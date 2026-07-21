@@ -7,9 +7,15 @@ export default async function EditarArtigoPage({ params }: { params: { id: strin
   const sessao = await obterSessaoAtual();
   if (!sessao?.imobiliariaId) return null;
 
-  const artigo = await prisma.artigo.findFirst({
-    where: { id: params.id, imobiliariaId: sessao.imobiliariaId }
-  });
+  type ArtigoEdit = { id: string; titulo: string; slug: string; resumo: string | null; conteudo: string; imagemCapaUrl: string | null; categoria: string | null; autor: string | null; publicadoEm: Date; ativo: boolean | number; metaDescricao: string | null };
+  let artigo: ArtigoEdit | null = null;
+  try {
+    const rows = await prisma.$queryRaw<ArtigoEdit[]>`
+      SELECT id, titulo, slug, resumo, conteudo, imagemCapaUrl, categoria, autor, publicadoEm, ativo, metaDescricao
+      FROM artigos WHERE id = ${params.id} AND imobiliariaId = ${sessao.imobiliariaId} LIMIT 1
+    `;
+    artigo = rows[0] ?? null;
+  } catch { artigo = null; }
 
   if (!artigo) notFound();
 
@@ -28,8 +34,8 @@ export default async function EditarArtigoPage({ params }: { params: { id: strin
         imagemCapaUrl: artigo.imagemCapaUrl ?? "",
         categoria: artigo.categoria ?? "",
         autor: artigo.autor ?? "",
-        publicadoEm: artigo.publicadoEm.toISOString().slice(0, 16),
-        ativo: artigo.ativo,
+        publicadoEm: new Date(artigo.publicadoEm).toISOString().slice(0, 16),
+        ativo: Boolean(artigo.ativo),
         metaDescricao: artigo.metaDescricao ?? "",
       }} />
     </div>

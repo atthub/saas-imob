@@ -8,11 +8,16 @@ export default async function BlogAdminPage() {
   const sessao = await obterSessaoAtual();
   if (!sessao?.imobiliariaId) return null;
 
-  const artigos = await prisma.artigo.findMany({
-    where: { imobiliariaId: sessao.imobiliariaId },
-    orderBy: { publicadoEm: "desc" },
-    select: { id: true, titulo: true, slug: true, categoria: true, ativo: true, publicadoEm: true, imagemCapaUrl: true }
-  });
+  type ArtigoAdmin = { id: string; titulo: string; slug: string; categoria: string | null; ativo: boolean | number; publicadoEm: Date; imagemCapaUrl: string | null };
+  let artigos: ArtigoAdmin[] = [];
+  try {
+    artigos = await prisma.$queryRaw<ArtigoAdmin[]>`
+      SELECT id, titulo, slug, categoria, ativo, publicadoEm, imagemCapaUrl
+      FROM artigos
+      WHERE imobiliariaId = ${sessao.imobiliariaId}
+      ORDER BY publicadoEm DESC
+    `;
+  } catch { artigos = []; }
 
   return (
     <div className="space-y-6">

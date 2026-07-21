@@ -9,12 +9,27 @@ export const dynamic = "force-dynamic";
 
 type Props = { params: { slug: string } };
 
-async function getArtigo(slug: string) {
+type ArtigoCompleto = {
+  id: string; titulo: string; slug: string; resumo: string | null; conteudo: string;
+  imagemCapaUrl: string | null; categoria: string | null; autor: string | null;
+  publicadoEm: Date; metaDescricao: string | null; ativo: number | boolean;
+};
+
+async function getArtigo(slug: string): Promise<ArtigoCompleto | null> {
   const imobiliaria = await obterImobiliariaAtual();
   if (!imobiliaria) return null;
-  return prisma.artigo.findFirst({
-    where: { imobiliariaId: imobiliaria.id, slug, ativo: true }
-  });
+  try {
+    const rows = await prisma.$queryRaw<ArtigoCompleto[]>`
+      SELECT id, titulo, slug, resumo, conteudo, imagemCapaUrl, categoria, autor,
+             publicadoEm, metaDescricao, ativo
+      FROM artigos
+      WHERE imobiliariaId = ${imobiliaria.id} AND slug = ${slug} AND ativo = 1
+      LIMIT 1
+    `;
+    return rows[0] ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
