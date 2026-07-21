@@ -45,9 +45,21 @@ jobs:
           DATABASE_URL: "mysql://fake:fake@localhost:3306/fake"
         run: npm run build
 
-      - name: Compactar .next + prisma
+      - name: Gerar Prisma Client (garante models atualizados no zip)
         working-directory: app
-        run: zip -r ${{ github.workspace }}/next-build.zip .next prisma/schema.prisma prisma/seed.js
+        env:
+          DATABASE_URL: "mysql://fake:fake@localhost:3306/fake"
+        run: npx prisma generate
+
+      - name: Compactar .next + prisma + client gerado
+        working-directory: app
+        run: |
+          # Inclui o Prisma Client gerado (sem os binários de engine, que já estão no servidor)
+          zip -r ${{ github.workspace }}/next-build.zip \
+            .next prisma/schema.prisma prisma/seed.js \
+            node_modules/.prisma/client \
+            -x "node_modules/.prisma/client/query-engine-*" \
+            -x "node_modules/.prisma/client/libquery_engine-*"
 
       - name: Salvar artefato de build
         uses: actions/upload-artifact@v4
