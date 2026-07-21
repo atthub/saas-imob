@@ -306,7 +306,7 @@ jobs:
     timeout-minutes: 20
 
     env:
-      CPANEL_HOST:    elianagodoy.com.br:2083
+      CPANEL_HOST:    128.201.75.100:2083
       CPANEL_USER:    ${{ secrets.ELIANA_CPANEL_USER }}
       CPANEL_TOKEN:   ${{ secrets.ELIANA_CPANEL_TOKEN }}
       DEPLOY_SECRET:  ${{ secrets.ELIANA_DEPLOY_SECRET }}
