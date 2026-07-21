@@ -6,12 +6,23 @@ export async function GET() {
   const sessao = await obterSessaoAtual();
   if (!sessao?.imobiliariaId) return NextResponse.json({ erro: "Não autenticado." }, { status: 401 });
 
-  const promocoes = await prisma.promocao.findMany({
-    where: { imobiliariaId: sessao.imobiliariaId },
-    orderBy: { ordem: "asc" }
-  });
+  const promocoes = await prisma.$queryRaw<any[]>`
+    SELECT id, imobiliariaId, titulo, subtitulo, descricao,
+           imagemUrl, imagemUrlMobile, tipoLink, codigoImovel, link,
+           captarLeads, ordem, ativo, dataInicio, dataFim, criadoEm, atualizadoEm
+    FROM promocoes
+    WHERE imobiliariaId = ${sessao.imobiliariaId}
+    ORDER BY ordem ASC
+  `;
 
-  return NextResponse.json({ promocoes });
+  // Normaliza tipos booleanos (MySQL retorna 0/1)
+  const resultado = promocoes.map((p: any) => ({
+    ...p,
+    captarLeads: p.captarLeads === 1 || p.captarLeads === true,
+    ativo:       p.ativo       === 1 || p.ativo       === true,
+  }));
+
+  return NextResponse.json({ promocoes: resultado });
 }
 
 export async function POST(request: NextRequest) {

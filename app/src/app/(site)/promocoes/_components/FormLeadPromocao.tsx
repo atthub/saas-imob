@@ -59,7 +59,7 @@ export default function FormLeadPromocao({ promocaoId, promocaoTitulo, imobiliar
 
   return (
     <form onSubmit={enviar} className="mt-4 bg-gray-50 rounded-xl p-4 border border-gray-200 space-y-3">
-      <p className="text-sm font-semibold text-brand-dark">Quero saber mais sobre esta promoção</p>
+      <p className="text-sm font-semibold text-brand-dark">Participe dessa promoção</p>
       {erro && <p className="text-xs text-red-600 bg-red-50 rounded px-3 py-2">{erro}</p>}
       <div className="grid sm:grid-cols-2 gap-3">
         <div>

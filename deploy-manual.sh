@@ -40,6 +40,14 @@ fi
 
 # ─── Configurações por cliente ────────────────────────────────────────────────
 case "$CLIENTE" in
+  homologacao)
+    SSH_USER="atthub"
+    SSH_HOST="128.201.75.100"
+    SSH_PORT="1158"
+    NODE_BIN="/home/atthub/nodevenv/homologacao.attitudehub.com.br/22/bin/node"
+    APP_DIR="/home/atthub/homologacao.attitudehub.com.br"
+    ;;
+
   jkr)
     SSH_USER="jkrimoveis"
     SSH_HOST="128.201.75.100"
