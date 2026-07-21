@@ -14,21 +14,27 @@ export default async function SiteLayout({ children }: { children: React.ReactNo
   const templateId = imobiliaria?.template?.identificador || "classico";
 
   // Verifica se há promoções ativas para exibir o link no menu
-  const agora = new Date();
-  const temPromocoesAtivas = imobiliaria
-    ? (await prisma.promocao.count({
-        where: {
-          imobiliariaId: imobiliaria.id,
-          ativo: true,
-          OR: [
-            { dataInicio: null, dataFim: null },
-            { dataInicio: { lte: agora }, dataFim: null },
-            { dataInicio: null, dataFim: { gte: agora } },
-            { dataInicio: { lte: agora }, dataFim: { gte: agora } },
-          ]
-        }
-      })) > 0
-    : false;
+  // Usa $queryRaw para não depender de o Prisma Client ter o model Promocao gerado
+  let temPromocoesAtivas = false;
+  if (imobiliaria) {
+    try {
+      const agora = new Date();
+      const rows = await prisma.$queryRaw<[{ total: bigint }]>`
+        SELECT COUNT(*) AS total FROM promocoes
+        WHERE imobiliariaId = ${imobiliaria.id}
+          AND ativo = 1
+          AND (
+            (dataInicio IS NULL AND dataFim IS NULL)
+            OR (dataInicio <= ${agora} AND dataFim IS NULL)
+            OR (dataInicio IS NULL AND dataFim >= ${agora})
+            OR (dataInicio <= ${agora} AND dataFim >= ${agora})
+          )
+      `;
+      temPromocoesAtivas = Number(rows[0]?.total ?? 0) > 0;
+    } catch {
+      temPromocoesAtivas = false;
+    }
+  }
 
   // Todos os toggles lidos da tabela chave-valor configuracoes_imobiliaria
   let mcmvHabilitado = false;
