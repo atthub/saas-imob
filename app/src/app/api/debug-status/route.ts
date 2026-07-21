@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { readFileSync, existsSync } from "fs";
+import { join } from "path";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
@@ -82,6 +84,32 @@ export async function GET() {
     }
   } catch (e: unknown) {
     resultado.promocoes_count = `✗ ERRO: ${e instanceof Error ? e.message : String(e)}`;
+  }
+
+  // 7. Modelos disponíveis no Prisma Client
+  try {
+    const modelos = Object.keys(prisma)
+      .filter((k) => !k.startsWith("$") && !k.startsWith("_"))
+      .sort();
+    resultado.modelos_prisma = modelos;
+  } catch (e: unknown) {
+    resultado.modelos_prisma = `✗ ERRO: ${e instanceof Error ? e.message : String(e)}`;
+  }
+
+  // 8. Schema.prisma no servidor — verifica se tem Promocao
+  try {
+    const schemaPath = join(process.cwd(), "prisma", "schema.prisma");
+    if (existsSync(schemaPath)) {
+      const schema = readFileSync(schemaPath, "utf8");
+      resultado.schema_tem_promocao = schema.includes("model Promocao") ? "✓ SIM" : "✗ NÃO";
+      resultado.schema_tem_artigo = schema.includes("model Artigo") ? "✓ SIM" : "✗ NÃO";
+      resultado.schema_tem_configuracao = schema.includes("ConfiguracaoImobiliaria") ? "✓ SIM" : "✗ NÃO";
+      resultado.schema_path = schemaPath;
+    } else {
+      resultado.schema_path = `✗ NÃO ENCONTRADO em ${schemaPath}`;
+    }
+  } catch (e: unknown) {
+    resultado.schema_info = `✗ ERRO: ${e instanceof Error ? e.message : String(e)}`;
   }
 
   return NextResponse.json(resultado, { status: 200 });
