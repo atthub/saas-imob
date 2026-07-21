@@ -153,6 +153,7 @@ export default async function PromocaoDetalhePage({ params }: { params: { id: st
           promocaoId={p.id}
           promocaoTitulo={p.titulo}
           imobiliariaId={imobiliaria.id}
+          turnstileSiteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || ""}
         />
       ) : linkDestino ? (
         <Link
