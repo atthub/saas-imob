@@ -29,10 +29,12 @@ type Promocao = { id: string; titulo: string };
 
 export default function LeadsView({
   leads,
-  corretores
+  corretores,
+  modoCorretor = false
 }: {
   leads: LeadKanban[];
   corretores: Corretor[];
+  modoCorretor?: boolean;
 }) {
   const [modo, setModo] = useState<"lista" | "kanban">("lista");
 
@@ -191,12 +193,16 @@ export default function LeadsView({
                       >
                         Detalhes
                       </Link>
-                      <DirecionarLeadSelect
-                        leadId={lead.id}
-                        corretores={corretores}
-                        corretorAtualId={lead.corretor?.id || null}
-                      />
-                      <ExcluirLeadButton leadId={lead.id} />
+                      {!modoCorretor && (
+                        <>
+                          <DirecionarLeadSelect
+                            leadId={lead.id}
+                            corretores={corretores}
+                            corretorAtualId={lead.corretor?.id || null}
+                          />
+                          <ExcluirLeadButton leadId={lead.id} />
+                        </>
+                      )}
                     </div>
                   </td>
                 </tr>

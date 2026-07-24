@@ -55,7 +55,18 @@ export default async function CorretoresPage() {
                 <td className="px-4 py-3">{corretor.nome}</td>
                 <td className="px-4 py-3 text-gray-500">{corretor.telefone}</td>
                 <td className="px-4 py-3 text-gray-500">{corretor.email || "-"}</td>
-                <td className="px-4 py-3 text-gray-500">{corretor._count.leads}</td>
+                <td className="px-4 py-3">
+                  {corretor._count.leads > 0 ? (
+                    <Link
+                      href={`/admin/leads?corretorId=${corretor.id}`}
+                      className="text-brand-goldVivid font-semibold hover:underline"
+                    >
+                      {corretor._count.leads}
+                    </Link>
+                  ) : (
+                    <span className="text-gray-400">0</span>
+                  )}
+                </td>
                 <td className="px-4 py-3">
                   {corretor.ativo ? (
                     <span className="text-green-600 text-xs font-medium">Ativo</span>
